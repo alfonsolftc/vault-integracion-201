@@ -28,7 +28,7 @@ El laboratorio corre en el navegador (Codespace o Docker). En tu equipo no se in
   - [Laboratorio: AppRole](labs/M04-autenticacion/01-lab-approle.md)
   - [Laboratorio: UserPass](labs/M04-autenticacion/02-lab-userpass.md)
   - [Laboratorio: secret_id de un solo uso](labs/M04-autenticacion/03-lab-secret-id-un-uso.md)
-- **M05 — Integración con aplicaciones** — [la app obtiene la clave por la API, por el fichero de Vault Agent o con un usuario de Postgres que Vault crea al entrar](labs/M05-integracion-aplicaciones/00-integrar-aplicacion.md)
+- **M05 — Integración con aplicaciones** — [la app llama a la API, o un inyector y Vault Agent le dejan la clave en el entorno y arrancan el proceso sin tocarlo](labs/M05-integracion-aplicaciones/00-integrar-aplicacion.md)
   - [Laboratorio: consumo automático](labs/M05-integracion-aplicaciones/01-lab-consumo-automatico.md)
   - [Laboratorio: el job que falla cerrado](labs/M05-integracion-aplicaciones/02-lab-job-falla-cerrado.md)
   - [Laboratorio: Agent y el cambio en caliente](labs/M05-integracion-aplicaciones/03-lab-agent-en-caliente.md)

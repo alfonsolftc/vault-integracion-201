@@ -2,54 +2,64 @@
 
 [← Página anterior](../M04-autenticacion/03-lab-secret-id-un-uso.md) · [Siguiente página →](00-integrar-aplicacion.md)
 
-El Departamento de Test no administra el clúster: comprueba que una aplicación consigue el secreto y lo usa. Este módulo deja esa aplicación por escrito. Hay tres formas de entregarle el secreto, y las tres se ven funcionar.
+El Departamento de Test no administra el clúster: comprueba que una aplicación consigue el secreto y lo usa. Hay dos integraciones distintas, y las dos se ven en un script.
 
 ## Qué aprenderás
 
-- Distinguir el servidor Vault de la máquina donde corre la aplicación.
-- Una app que hace login AppRole, lee la clave y la usa.
-- Qué es Vault Agent, qué dice cada bloque de `agent.hcl` y por qué el fichero lo lee la app.
-- Un job de CI que sale con un código distinto si faltan credenciales o si el login es 400.
-- Una app que entra en Postgres con un usuario que Vault crea en ese momento y que desaparece al revocar el lease.
+- Una app cuyo código llama a la API de Vault, hace login y usa la clave.
+- Un proceso de negocio que no menciona Vault: solo lee la variable `CLAVE`.
+- Un inyector (el papel de un job de CI o de un entrypoint) que habla con Vault, exporta `CLAVE` y ejecuta ese proceso.
+- Vault Agent como ese mismo entrypoint: `env_template` rellena `CLAVE` y `exec` arranca el proceso.
+- Por qué el contenedor `pagos` usa la imagen de Vault, y por qué el proceso de negocio no usa ese cliente.
+- Un job que sale con un código distinto si faltan credenciales o si el login es 400.
+- Una app que entra en Postgres con un usuario que Vault crea al momento.
 
 ## Teoría
 
-Hay dos sitios. `vault-dev` es el servidor. La aplicación vive en otro: tu terminal, cuando ella llama a la API, o el contenedor `pagos`, cuando quien llama es Vault Agent. Meter Agent dentro de `vault-dev` mezcla los dos papeles. En este módulo Agent arranca en `pagos`.
+Hay dos sitios. `vault-dev` es el servidor. La aplicación vive en otro: tu terminal, o el contenedor `pagos`.
+
+Hay dos maneras de entregarle la clave.
+
+| | Quién llama a Vault | Qué hace el proceso de negocio |
+|--|---------------------|--------------------------------|
+| Código integrado | El propio código de la app | Login, GET y uso de la clave, en el mismo script |
+| Inyección | Otro proceso: un job, un entrypoint o Vault Agent | Lee `$CLAVE` y trabaja. Su código no cambia |
 
 ```text
-tu terminal                         contenedor pagos                 contenedor vault-dev
-(app que llama a la API)            (máquina de la aplicación)       (servidor Vault)
-        |                                    |                                |
-        |  login AppRole y GET del secreto   |                                |
-        +------------------------------------+------------------------------->|
-        |                                    |  Vault Agent hace ese login    |
-        |                                    +------------------------------->|
-        |                                    |  escribe /tmp/clave.txt        |
-        |                                    |  app.sh solo lee el fichero    |
+código integrado                         inyección
+app-pagos.sh                             inyector.sh  o  vault agent
+    |  login y GET                           |  login y GET
+    +------------------> vault-dev           +------------------> vault-dev
+    |  usa la clave                          |  export CLAVE=...
+    |                                        |  exec negocio.sh
+    |                                        negocio.sh solo lee $CLAVE
 ```
 
-Vault Agent es el binario `vault` con el subcomando `agent`. Es un proceso de la máquina de la aplicación (en Kubernetes, el contenedor de al lado en el mismo pod). Hace el login, renueva el token y escribe ficheros a partir de plantillas. La aplicación lee el fichero. No tiene token ni dirección de Vault.
+Vault Agent es el binario `vault` con el subcomando `agent`. Corre en la máquina de la aplicación. Con `auto_auth` hace el login, con `env_template` mete el secreto en una variable y con `exec` arranca el proceso de negocio. Ese proceso hereda el entorno y no recibe un token.
 
-`agent.hcl` es lo único que se le da a ese proceso:
+El contenedor `pagos` es esa máquina, en la red de `vault-dev`. La imagen es `hashicorp/vault` porque incluye el binario `vault`: hace falta para ejecutar Agent. El proceso de negocio es un `sh` que lee `$CLAVE` y no llama a ese binario. `sleep` solo mantiene el contenedor encendido mientras se copian los ficheros. En un despliegue, el comando del contenedor sería `vault agent -config=…` y ese proceso sería el entrypoint.
+
+`agent.hcl` es lo único que se le da a Agent:
 
 | Bloque | Para qué está |
 |--------|----------------|
 | `pid_file` | Dónde escribe su número de proceso, para poder pararlo |
-| `vault.address` | Dónde está el servidor, visto desde la máquina de la app. Aquí `http://vault-dev:8200`. Dentro de `pagos`, `127.0.0.1` es la propia app |
-| `auto_auth` | El login AppRole. Lee `role_id` y `secret_id` de ficheros, porque Agent no hereda las variables de tu terminal |
-| `remove_secret_id_file_after_reading` | Con `true`, borra el `secret_id` tras el login. En el laboratorio está en `false` para poder arrancar Agent otra vez con el mismo fichero |
-| `template` | El GET del secreto y el fichero de destino. `with secret` lee; `.Data.data.clave` es el campo del KV v2 |
+| `vault.address` | Dónde está el servidor visto desde `pagos`: `http://vault-dev:8200`. Ahí `127.0.0.1` es el propio contenedor |
+| `auto_auth` | El login AppRole. Lee `role_id` y `secret_id` de fichero |
+| `remove_secret_id_file_after_reading` | Con `false`, el fichero sigue y Agent puede arrancar otra vez |
+| `env_template "CLAVE"` | El GET del secreto. El valor queda en la variable `CLAVE` del proceso hijo |
+| `exec` | El entrypoint: cuando `CLAVE` está lista, arranca `/bin/sh /tmp/negocio.sh` |
 
-La tercera entrega usa el motor `database`. La app pide un usuario de Postgres, Vault lo crea con una contraseña de un solo uso y un lease, y la app entra con ese usuario. La contraseña de administrador no sale de Vault. El mismo motor tiene plugins para MySQL, Redis y otros; aquí Postgres basta para ver el usuario entrar y leer una fila.
+La tercera entrega usa el motor `database`. La app pide un usuario de Postgres y Vault lo crea con un lease. El mismo motor tiene plugins para MySQL o Redis; aquí Postgres basta para ver el usuario entrar y leer una fila.
 
 ## Páginas
 
 | # | Página | Qué hay |
 |---|--------|---------|
-| 00 | [Integrar una aplicación](00-integrar-aplicacion.md) | La app que llama a la API y la app que lee el fichero de Agent |
-| 01 | [Consumo automático](01-lab-consumo-automatico.md) | Los dos caminos, desde un servidor vacío |
-| 02 | [El job que falla cerrado](02-lab-job-falla-cerrado.md) | El job de CI sale 2 sin credenciales y 1 si el login es 400 |
-| 03 | [Agent y el cambio en caliente](03-lab-agent-en-caliente.md) | La app dice la clave nueva sin rearrancar Agent |
+| 00 | [Integrar una aplicación](00-integrar-aplicacion.md) | Código que llama a la API, inyector y Agent como entrypoint |
+| 01 | [Consumo automático](01-lab-consumo-automatico.md) | Los tres, desde un servidor vacío |
+| 02 | [El job que falla cerrado](02-lab-job-falla-cerrado.md) | El inyector de CI sale 2 sin credenciales y 1 si el login es 400 |
+| 03 | [Agent y el cambio en caliente](03-lab-agent-en-caliente.md) | Agent mata el proceso y lo vuelve a ejecutar con la clave nueva |
 | 04 | [La app entra en Postgres](04-lab-credencial-de-postgres.md) | Cada arranque recibe un usuario distinto, y al revocar deja de existir |
 
 → Empieza por **[00 — Integrar una aplicación](00-integrar-aplicacion.md)**.
