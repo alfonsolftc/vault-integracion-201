@@ -1,6 +1,6 @@
 # M06 — Testing de integraciones
 
-[← Página anterior](../M05-integracion-aplicaciones/03-lab-agent-en-caliente.md) · [Siguiente página →](00-disenar-pruebas.md)
+[← Página anterior](../M05-integracion-aplicaciones/04-lab-credencial-de-postgres.md) · [Siguiente página →](00-disenar-pruebas.md)
 
 Aquí está el motivo del curso: diseñar la prueba de una aplicación que habla con Vault y saber qué síntoma corresponde a cada fallo. El caso feliz ya lo tienes en el módulo 5; esta página no lo da por hecho y lo reconstruye.
 

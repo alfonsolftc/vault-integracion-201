@@ -34,6 +34,10 @@ Si no tienes el CLI de Vault, `entorno.sh` define una función `vault` que ejecu
 3. Al terminar, el puerto **8200** queda publicado. Ábrelo solo si quieres la UI; los laboratorios usan la terminal.
 4. En la terminal del Codespace ejecuta el arranque de arriba.
 
+## Contenedores de aplicación (módulo 5)
+
+Los laboratorios de integración arrancan, además de `vault-dev`, el contenedor `pagos` (la máquina de la aplicación, con Vault Agent) y `pagos-db` (Postgres). Esos dos no son el servidor Vault. `bash infra/reiniciar-vault.sh` los elimina.
+
 ## Qué no hace este entorno
 
 No reproduce el clúster, el auto-unseal ni los métodos de autenticación de producción. Cada laboratorio construye aquí el estado que necesita para poder hacerse solo.

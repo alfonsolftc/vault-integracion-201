@@ -2,7 +2,7 @@
 
 [← Página anterior](01-lab-consumo-automatico.md) · [Siguiente página →](03-lab-agent-en-caliente.md)
 
-Un job de CI que no distingue «no me pasaron las credenciales» de «Vault rechazó el login» de «ya tengo la clave» deja el fallo a medias. Vas a escribir el script para que salga con un código distinto en cada caso y no imprima la clave cuando no entró.
+La app de la página anterior imprime un saludo con la clave. Un job de CI es otro consumidor: hace el mismo login, pero un test tiene que poder afirmar el fallo por el código de salida. Vas a escribir ese job para que salga con un código distinto en cada caso y no imprima la clave cuando no entró.
 
 ### Objetivo
 

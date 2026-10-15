@@ -18,6 +18,10 @@ if [[ -f /.dockerenv ]] && docker inspect vault-dev >/dev/null 2>&1; then
   fi
 fi
 
+# pagos y pagos-db los arrancan los labs de M05 en la red de Vault.
+# Si siguen vivos, compose no puede borrar esa red.
+docker rm -f pagos pagos-db >/dev/null 2>&1 || true
+
 docker compose -f "$ROOT/infra/compose.yaml" down
 docker compose -f "$ROOT/infra/compose.yaml" up -d
 
