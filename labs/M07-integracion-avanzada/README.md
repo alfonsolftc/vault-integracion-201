@@ -28,8 +28,8 @@ La huella es el prefijo de doce caracteres del sha256 de `negocio.sh`, guardada 
 ```text
 huella del código               envoltorio                      firma Transit                 SSH
 vault agent                     vault agent                     vault agent                   motor ssh/ + sshd
-  lee la huella registrada       unwrap del wrapping token       proxy 127.0.0.1:8100           CA en el Ubuntu
-  mide negocio.sh                 el secret_id no se imprime      firmar.sh pide la firma       ana entra con UserPass
+  lee la huella registrada       unwrap del wrapping token       proxy 127.0.0.1:8100           Agent escribe la CA
+  mide negocio.sh                 el secret_id no se imprime      firmar.sh pide la firma       y el certificado de ana
   solo entonces inyecta CLAVE     el token de entrega ya no vale  imprime vault:v1:             sesión por el puerto 2222
 ```
 
@@ -37,7 +37,7 @@ El envoltorio es response wrapping. `vault write -wrap-ttl` devuelve un wrapping
 
 La firma Transit usa el motor `transit`. La app manda el texto `pago:42` al proxy local. Agent añade su token. Transit devuelve `vault:v1:…` y `transit/verify` dice `valid: true`. Leer `transit/export/signing-key/pagos` con el token `root` responde `private key material is not exportable`.
 
-SSH no es el motor `pki` (X.509). Es `ssh/` con `key_type=ca` y una CA Ed25519. El Ubuntu confía en esa pública. `ana` entra con UserPass, Vault firma su clave para el principal `ana` y `ssh` abre la sesión. Sin el certificado, `sshd` responde `Permission denied`. Pedir el principal `root` responde 400.
+SSH no es el motor `pki` (X.509). Es `ssh/` con `key_type=ca` y una CA Ed25519. Vault Agent, dentro del Ubuntu, escribe la pública de la CA y el certificado de `ana` en cuanto ella lo firma. `sshd` confía en esa CA. Sin el certificado, responde `Permission denied`. Pedir el principal `root` responde 400.
 
 > [!NOTE]
 > El log de Agent, al arrancar el proxy, avisa de que esa función pasa al subcomando `vault proxy`. En este módulo el proceso sigue siendo `vault agent`.

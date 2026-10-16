@@ -2,7 +2,7 @@
 
 [← Página anterior](03-lab-firma-transit.md) · [Siguiente página →](05-lab-bateria.md)
 
-Vault administra quién entra en un servidor. El servidor es un Ubuntu que arrancas con Docker: tiene `sshd`, el usuario de sistema `ana` y la clave pública de la CA de Vault. No tiene contraseña. `ana` entra en Vault con UserPass, Vault le firma un certificado de treinta minutos, y con ese certificado abre la sesión SSH. Sin el certificado, `sshd` responde `Permission denied`.
+Vault administra quién entra en un servidor. El servidor es un Ubuntu que arrancas con Docker: tiene `sshd` y el usuario de sistema `ana`, y no tiene contraseña. Vault Agent corre dentro de esa Ubuntu. Escribe la pública de la CA y, cuando `ana` firma, escribe su certificado en `/home/ana/.ssh/ana-ssh-cert.pub`. Nadie lo copia a mano. `ana` entra en Vault con UserPass, presenta ese certificado y abre la sesión SSH. Sin él, `sshd` responde `Permission denied`.
 
 ### Objetivo
 
@@ -25,7 +25,7 @@ El contenedor `destino` se crea en esta página. Quítalo al final: el comando e
 
 ### En qué consiste
 
-Crear la CA en el motor `ssh`, levantar el Ubuntu que confía en esa CA, entrar como `ana` con UserPass, firmar la clave pública y usar el certificado para entrar por SSH.
+Crear la CA en el motor `ssh`, levantar el Ubuntu, dejar que Agent escriba ahí la CA y el certificado de `ana`, entrar con UserPass y usar ese certificado para abrir la sesión SSH.
 
 ### 1 — Habilita el motor y genera la CA
 
@@ -82,12 +82,15 @@ bash infra/policy.sh firma-ssh <<'EOF'
 path "ssh/sign/acceso" {
   capabilities = ["create", "update"]
 }
+path "secret/data/ssh/ana" {
+  capabilities = ["create", "update"]
+}
 EOF
 vault auth enable userpass
 vault write auth/userpass/users/ana password=ana-lab policies=firma-ssh
 ```
 
-**Por qué:** `ana` es una persona. Entra con usuario y contraseña, como en el módulo 4, y el token solo puede firmar en `ssh/sign/acceso`. No lee KV ni exporta la CA. El token `root` sigue en esta terminal para los pasos de administración.
+**Por qué:** `ana` es una persona. Entra con usuario y contraseña, como en el módulo 4, y el token solo puede firmar en `ssh/sign/acceso` y guardar ese certificado en `secret/ssh/ana`. No exporta la CA. El token `root` sigue en esta terminal para los pasos de administración.
 
 **Resultado esperado:** `Policy firma-ssh escrita.`, `Success! Enabled userpass auth method at: userpass/` y `Success! Data written to: auth/userpass/users/ana`.
 
@@ -118,20 +121,97 @@ docker exec destino bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get upda
 
 **Resultado esperado:** una línea con `/usr/sbin/sshd` y `listener`. Tarda un poco: está instalando el paquete.
 
-### 7 — Confía en la CA y arranca sshd
+### 7 — Prepara la cuenta y apunta sshd a la CA
 
 **Acción:**
 
 ```bash
-docker cp /tmp/vault-ssh-ca.pub destino:/etc/ssh/vault-ca.pub
-docker exec destino bash -c 'id ana >/dev/null 2>&1 || useradd -m -s /bin/bash ana; usermod -p "*" ana; mkdir -p /run/sshd; printf "%s\n" "TrustedUserCAKeys /etc/ssh/vault-ca.pub" "PasswordAuthentication no" "KbdInteractiveAuthentication no" "PubkeyAuthentication yes" "UsePAM no" > /etc/ssh/sshd_config.d/vault.conf; pkill sshd || true; sleep 0.3; ssh-keygen -A; /usr/sbin/sshd; pgrep -a sshd'
+docker exec destino bash -c 'id ana >/dev/null 2>&1 || useradd -m -s /bin/bash ana; usermod -p "*" ana; mkdir -p /home/ana/.ssh /run/sshd; printf "%s\n" "TrustedUserCAKeys /etc/ssh/vault-ca.pub" "PasswordAuthentication no" "KbdInteractiveAuthentication no" "PubkeyAuthentication yes" "UsePAM no" > /etc/ssh/sshd_config.d/vault.conf; echo cuenta=ana'
 ```
 
-**Por qué:** `TrustedUserCAKeys` es la pública de Vault: `sshd` acepta certificados firmados por esa CA y rechaza el resto. El proceso que ya estaba en marcha no relee la configuración, así que se para y se vuelve a lanzar. `ana` existe como usuario de sistema, sin contraseña. `useradd` deja la cuenta bloqueada y `sshd` entonces ignora el certificado (`account is locked`); `usermod -p "*"` abre la cuenta sin crear una contraseña. `PasswordAuthentication no` cierra el otro camino.
+**Por qué:** `TrustedUserCAKeys` nombra el fichero donde Agent va a escribir la pública de Vault. Ese fichero todavía no existe: `sshd` sigue con la configuración del paso 6 hasta que Agent lo reinicie. `useradd` deja la cuenta bloqueada y entonces ignora el certificado (`account is locked`); `usermod -p "*"` abre la cuenta sin crear una contraseña. `PasswordAuthentication no` cierra el otro camino.
 
-**Resultado esperado:** otra vez una línea con `/usr/sbin/sshd` y `listener`.
+**Resultado esperado:** `cuenta=ana`.
 
-### 8 — Elige por dónde llegar al servidor
+### 8 — Agent escribe la CA en la Ubuntu
+
+**Acción:**
+
+```bash
+bash infra/policy.sh entrega-ssh <<'EOF'
+path "ssh/config/ca" {
+  capabilities = ["read"]
+}
+path "secret/data/ssh/ana" {
+  capabilities = ["read"]
+}
+path "secret/metadata/ssh/ana" {
+  capabilities = ["read"]
+}
+EOF
+vault auth enable approle
+vault write auth/approle/role/destino \
+  token_policies=entrega-ssh \
+  token_ttl=15m \
+  token_max_ttl=1h
+ROLE_ID=$(vault read -field=role_id auth/approle/role/destino/role-id)
+SECRET_ID=$(vault write -f -field=secret_id auth/approle/role/destino/secret-id)
+cid=$(docker create hashicorp/vault:1.18)
+docker cp "$cid":/bin/vault /tmp/vault-bin
+docker rm "$cid" >/dev/null
+docker cp /tmp/vault-bin destino:/usr/local/bin/vault
+docker exec destino chmod +x /usr/local/bin/vault
+printf '%s' "$ROLE_ID" | docker exec -i destino tee /tmp/role_id >/dev/null
+printf '%s' "$SECRET_ID" | docker exec -i destino tee /tmp/secret_id >/dev/null
+docker exec -i destino tee /tmp/agent.hcl >/dev/null <<'EOF'
+pid_file = "/tmp/vault-agent.pid"
+
+vault {
+  address = "http://vault-dev:8200"
+}
+
+auto_auth {
+  method "approle" {
+    config = {
+      role_id_file_path = "/tmp/role_id"
+      secret_id_file_path = "/tmp/secret_id"
+      remove_secret_id_file_after_reading = false
+    }
+  }
+}
+
+template_config {
+  static_secret_render_interval = "5s"
+}
+
+template {
+  destination = "/etc/ssh/vault-ca.pub"
+  perms = "0644"
+  contents = "{{ with secret \"ssh/config/ca\" }}{{ .Data.public_key }}{{ end }}\n"
+  command = "/bin/sh -c 'pkill sshd || true; sleep 0.3; mkdir -p /run/sshd; /usr/sbin/sshd'"
+}
+
+template {
+  destination = "/home/ana/.ssh/ana-ssh-cert.pub"
+  create_dest_dirs = true
+  perms = "0644"
+  contents = "{{ with secret \"secret/data/ssh/ana\" }}{{ .Data.data.certificado }}{{ end }}\n"
+}
+EOF
+docker exec -d destino sh -c '/usr/local/bin/vault agent -config=/tmp/agent.hcl > /tmp/agent.log 2>&1'
+for i in $(seq 1 30); do
+  docker exec destino test -s /etc/ssh/vault-ca.pub && break
+  sleep 0.3
+done
+docker exec destino ssh-keygen -lf /etc/ssh/vault-ca.pub
+docker exec destino pgrep -a sshd
+```
+
+**Por qué:** la Ubuntu no trae el binario `vault`; se copia de la imagen `hashicorp/vault:1.18` para ejecutar Agent. Agent entra con AppRole, lee `ssh/config/ca` y escribe `/etc/ssh/vault-ca.pub`. Al terminar, reinicia `sshd`, que a partir de ahí confía en esa CA. El certificado de `ana` todavía no existe: en el log puede salir `no secret exists at secret/data/ssh/ana`. Es la espera del otro template.
+
+**Resultado esperado:** `Policy entrega-ssh escrita.`, el alta de AppRole, una línea `256 SHA256:… (ED25519)` y otra con `/usr/sbin/sshd` y `listener`. La huella es la misma del paso 2.
+
+### 9 — Elige por dónde llegar al servidor
 
 **Acción:**
 
@@ -152,7 +232,7 @@ echo "ssh_host=${SSH_HOST} ssh_port=${SSH_PORT}"
 
 **Resultado esperado:** `ssh_host=127.0.0.1 ssh_port=2222`, o `ssh_host=` con una IP y `ssh_port=22`.
 
-### 9 — Genera el par de ana
+### 10 — Genera el par de ana
 
 **Acción:**
 
@@ -166,7 +246,7 @@ stat -c 'modo=%a' /tmp/ana-ssh
 
 **Resultado esperado:** `modo=600`.
 
-### 10 — Entra con UserPass y firma la pública
+### 11 — Entra con UserPass y firma la pública
 
 **Acción:**
 
@@ -183,30 +263,41 @@ curl -sS -o /tmp/ssh-sign.json -w "http=%{http_code}\n" \
   --data "$(python3 -c 'import json,os; print(json.dumps({"public_key": os.environ["PUB"], "valid_principals": "ana"}))')" \
   "${VAULT_ADDR}/v1/ssh/sign/acceso"
 python3 -c 'import json; d=json.load(open("/tmp/ssh-sign.json")); open("/tmp/ana-ssh-cert.pub","w").write(d["data"]["signed_key"]); print("cert_bytes", len(d["data"]["signed_key"]))'
+export CERT="$(cat /tmp/ana-ssh-cert.pub)"
+curl -sS -o /dev/null -w "guardado=%{http_code}\n" \
+  --header "X-Vault-Token: ${ANA}" \
+  --request POST \
+  --data "$(python3 -c 'import json,os; print(json.dumps({"data":{"certificado": os.environ["CERT"]}}))')" \
+  "${VAULT_ADDR}/v1/secret/data/ssh/ana"
 ```
 
-**Por qué:** el login es el de `ana` / `ana-lab`. El token que firma es el suyo, no el `root`. Vault recibe la pública y el principal `ana`, y devuelve un certificado. La privada no sale de esta máquina.
+**Por qué:** el login es el de `ana` / `ana-lab`. El token que firma es el suyo, no el `root`. Vault recibe la pública y el principal `ana`, y devuelve un certificado. La privada no sale de esta máquina. El mismo token guarda el certificado en `secret/ssh/ana`: es el dato que Agent está esperando.
 
-**Resultado esperado:** el login es `http=200` y `token_len=95`. La firma es `http=200` y `cert_bytes` por encima de 500.
+**Resultado esperado:** el login es `http=200` y `token_len=95`. La firma es `http=200` y `cert_bytes` por encima de 500. La última línea es `guardado=200`.
 
-### 11 — Mira el certificado
+### 12 — El certificado aparece en la Ubuntu
 
 **Acción:**
 
 ```bash
-ssh-keygen -L -f /tmp/ana-ssh-cert.pub
+for i in $(seq 1 20); do
+  docker exec destino test -s /home/ana/.ssh/ana-ssh-cert.pub && break
+  sleep 1
+done
+echo "esperas=$i"
+docker exec destino ssh-keygen -L -f /home/ana/.ssh/ana-ssh-cert.pub
 ```
 
-**Por qué:** antes de entrar, el certificado dice quién es. El principal tiene que ser `ana`, la misma cuenta del servidor, y la ventana `Valid` es de treinta minutos.
+**Por qué:** Agent relee `secret/ssh/ana` cada cinco segundos y escribe `/home/ana/.ssh/ana-ssh-cert.pub`. No hay `docker cp`. `sshd` no autoriza leyendo ese fichero: autoriza porque el certificado que presenta el cliente está firmado por la CA de `/etc/ssh/vault-ca.pub`. El fichero es la prueba de que el certificado de `ana` está en la Ubuntu.
 
-**Resultado esperado:** en la salida aparecen:
+**Resultado esperado:** `esperas=` es un entero pequeño. En la salida de `ssh-keygen` aparecen:
 
 - `Type: ssh-ed25519-cert-v01@openssh.com user certificate`
 - `Principals:` y debajo `ana`
 - `permit-pty`
 - `Valid: from … to …` con un margen de treinta minutos
 
-### 12 — Entra en el servidor
+### 13 — Entra en el servidor
 
 **Acción:**
 
@@ -232,7 +323,7 @@ acceso=ok
 
 ![ana entra por SSH y el servidor escribe acceso=ok](../img/M07-04-cert.png)
 
-### 13 — Sin el certificado no hay sesión
+### 14 — Sin el certificado no hay sesión
 
 **Acción:**
 
@@ -254,7 +345,7 @@ mv /tmp/ana-ssh-cert.bak /tmp/ana-ssh-cert.pub
 
 **Resultado esperado:** una línea `Permission denied (publickey).` y `salida=255`.
 
-### 14 — Un principal que el rol no firma
+### 15 — Un principal que el rol no firma
 
 **Acción:**
 
@@ -274,7 +365,7 @@ python3 -c 'import json; print(json.load(open("/tmp/ssh-root.json")).get("errors
 
 ![Pedir el principal root responde 400](../img/M07-04-root.png)
 
-### 15 — Quita el servidor
+### 16 — Quita el servidor
 
 **Acción:**
 
@@ -327,8 +418,9 @@ ssh -i /tmp/ana-ssh \
 | `ssh-keygen: command not found` o `ssh: command not found` | Falta `openssh-client` | El `apt-get` del punto de partida |
 | `pgrep` no imprime nada tras el paso 6 | El paquete se instaló y `/usr/sbin/sshd` no llegó a lanzarse | Repite el paso 6. Dentro de `destino`, `systemctl` no arranca nada: el PID 1 es `sleep` |
 | `account is locked` en el log de `sshd`, y la sesión es `Permission denied` | Falta `usermod -p "*"` | Repite el paso 7 |
-| `Permission denied` en el paso 12 | El certificado no está en `/tmp/ana-ssh-cert.pub`, o `SSH_HOST` apunta a otro sitio | Repite los pasos 8, 10 y 12. `echo "$SSH_HOST $SSH_PORT"` tiene que coincidir con un `destino` vivo |
-| `http=403` al firmar | El token no es el de `ana` o la policy no tiene `ssh/sign/acceso` | Repite los pasos 4 y 10 |
+| `esperas=20` y el fichero no está | Agent no relee el KV, o `guardado=` no fue 200 | `docker exec destino tail /tmp/agent.log`. Tiene que existir `static_secret_render_interval` y el POST de `secret/data/ssh/ana` |
+| `Permission denied` en el paso 13 | El certificado no está en `/tmp/ana-ssh-cert.pub`, o `SSH_HOST` apunta a otro sitio | Repite los pasos 9, 11 y 13. `echo "$SSH_HOST $SSH_PORT"` tiene que coincidir con un `destino` vivo |
+| `http=403` al firmar o al guardar | El token no es el de `ana`, o la policy no tiene `ssh/sign/acceso` ni `secret/data/ssh/ana` | Repite los pasos 4 y 11 |
 | `http=400` al crear el rol, con `expected a map` | `default_extensions` se envió como texto | Usa el `curl` del paso 3 |
 | `bind: address already in use` en el puerto 2222 | Quedó un `destino` de un intento anterior | `docker rm -f destino` y repite el paso 5 |
-| `root is not a valid value` en el paso 10 | El JSON pide `root` | El 400 de `root` es el resultado bueno del paso 14 |
+| `root is not a valid value` en el paso 11 | El JSON pide `root` | El 400 de `root` es el resultado bueno del paso 15 |
