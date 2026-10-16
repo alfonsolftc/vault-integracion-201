@@ -29,7 +29,8 @@ fi
 source "$ROOT/infra/codespace-cid.sh"
 cid="$(vault_codespace_cid)" || {
   echo "No encuentro el contenedor de este Codespace en Docker (hostname=$(hostname))." >&2
-  echo "Prueba: docker ps --format '{{.ID}} {{.Names}}'" >&2
+  echo "Prueba: docker ps --format '{{.ID}} {{.Names}} {{.Label \"Type\"}}'" >&2
+  echo "Y: docker inspect -f '{{.Config.Hostname}}' \$(docker ps -q)" >&2
   exit 1
 }
 

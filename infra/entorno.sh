@@ -37,7 +37,10 @@ if [[ "$_listo" -ne 1 ]]; then
   return 1
 fi
 
-bash "$_ROOT/infra/puente.sh"
+if ! bash "$_ROOT/infra/puente.sh"; then
+  echo "El puente a Vault no quedó listo. Sin eso, 127.0.0.1:8200 no responde desde esta terminal." >&2
+  return 1
+fi
 
 export VAULT_ADDR=http://127.0.0.1:8200
 export VAULT_TOKEN=root
