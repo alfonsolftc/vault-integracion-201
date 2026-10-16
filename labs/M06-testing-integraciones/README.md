@@ -8,28 +8,53 @@ Aquí está el motivo del curso: diseñar la prueba de una aplicación que habla
 
 - Separar autenticación, autorización, dato y disponibilidad.
 - Provocar los fallos que pidió el temario y anotar el HTTP que ves.
-- No dar por rota «la integración» cuando lo que caducó fue el token.
+- Leer el síntoma en su sitio: un token caducado deja el secreto donde estaba.
 - Ejecutar un checklist de cuatro afirmaciones y leer el cuerpo de la respuesta, no solo el HTTP.
 
 ## Teoría
 
-| Caso | Dónde se rompe | Qué no debes concluir |
-|------|----------------|------------------------|
-| Token caducado | La credencial de sesión | Que el secreto esté mal |
-| Permiso insuficiente | La policy | Que Vault esté caído |
-| Secreto inexistente | El camino o la versión | Que el login haya fallado |
-| Rotación mal comprobada | Qué versión afirma el test | Que Vault haya perdido el dato |
-| Cambio en caliente | La app lee de nuevo, o no | Que haya que reiniciar Vault |
-| Vault inalcanzable | La red o el proceso | Un 403 |
+La aplicación de referencia hace dos llamadas. Primero el login en `/auth/approle/login`. Después el GET de `secret/data/pagos/api`. Cada fallo corta en un sitio distinto de ese camino.
 
-Una prueba sin resultado esperado escrito antes de lanzarla no distingue estos casos.
+```text
+login AppRole          GET del secreto
+role_id + secret_id → token → policy → dato en KV → red hasta vault-dev
+     |                  |        |          |              |
+  400 de login     403 token   403 policy  404 o versión   timeout
+```
+
+### Autenticación
+
+El login devuelve el token. Si el `secret_id` no vale, la respuesta es 400 y no llega a haber GET. Si el token ya existía y caducó, el GET responde 403 con `invalid token`. El secreto no se ha movido: lo que caducó es la credencial de sesión.
+
+### Autorización
+
+Un token vigente con una policy que no incluye `secret/data/pagos/api` también recibe 403, esta vez con `permission denied`. El login fue bien. Con el token `root` el mismo camino sigue devolviendo la clave.
+
+### El dato
+
+Con token y policy válidos, el cuerpo dice qué pasa con el valor.
+
+| Qué afirmas | HTTP | Qué miras en el cuerpo |
+|-------------|------|------------------------|
+| El camino no existe | 404 | No hay `clave` |
+| Pides la versión anterior | 200 | `clave` antigua y `version` 1 |
+| La app lee otra vez tras un `kv put` | 200 | La clave nueva, sin reiniciar Vault |
+| La versión vigente está borrada | 404 | `deletion_time` con contenido y `destroyed` false |
+| La versión está destruida | 404 | `destroyed` true. `undelete` imprime Success y el cuerpo no cambia |
+| El test lee el campo mal | 200 | `KeyError` en `data.clave`. El valor está en `data.data.clave` |
+
+### Disponibilidad
+
+`docker pause` congela `vault-dev` sin borrar la memoria. El `curl` con `--max-time 3` no recibe 200 ni 403: agota el tiempo. Al quitar la pausa, la clave sigue.
+
+Una prueba escribe antes estos tres datos: qué preparas, qué haces y qué tiene que pasar. Sin ese resultado, un 403 puede ser el token, la policy o el servicio.
 
 ## Páginas
 
 | # | Página | Qué hay |
 |---|--------|---------|
-| 00 | [Diseñar las pruebas](00-disenar-pruebas.md) | La ficha de cada caso |
-| 01 | [Escenarios de fallo](01-lab-escenarios-de-fallo.md) | Los provocas y miras la salida |
+| 00 | [Diseñar las pruebas](00-disenar-pruebas.md) | La ficha de cada caso, partida en preparación, acción y resultado |
+| 01 | [Escenarios de fallo](01-lab-escenarios-de-fallo.md) | Cada fallo, en su propio paso |
 | 02 | [Checklist ejecutable](02-lab-checklist.md) | Cuatro PASS en una sola orden |
 | 03 | [Contrato de la respuesta](03-lab-contrato-de-la-respuesta.md) | 404 con metadata, y un 200 leído en el campo equivocado |
 

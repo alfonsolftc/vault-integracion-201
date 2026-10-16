@@ -20,14 +20,32 @@ Servidor vacío. El script no hereda un `APP_TOKEN` de otro ejercicio: hace sus 
 
 ### En qué consiste
 
-Dos roles, el script y una ejecución verde. El reto rompe una afirmación a propósito.
+Primero el secreto y los dos roles, cada uno en su paso. Después el script, que afirma esto:
 
-### 1 — Secreto y dos roles
+| Línea | Preparación ya hecha | Qué afirma |
+|-------|----------------------|------------|
+| `PASS login` | Rol `pagos` con `secret_id` | El POST de AppRole devuelve token |
+| `PASS lectura` | `secret/pagos/api` = `clave-pagos` | HTTP 200 y el campo `data.data.clave` |
+| `PASS ausente` | La policy puede leer `pagos/no-existe` | Ese GET es 404 con el mismo token |
+| `PASS sin-permiso` | Rol `sin-pagos`, policy de nóminas | El GET de pagos es 403 |
+
+### 1 — Guarda la clave
 
 **Acción:**
 
 ```bash
 vault kv put secret/pagos/api clave=clave-pagos
+```
+
+**Por qué:** `PASS lectura` compara el campo con este valor. Si el secreto fuera otro, la afirmación fallaría con Vault sano.
+
+**Resultado esperado:** la metadata muestra `version` `1`.
+
+### 2 — Policy del rol que sí lee pagos
+
+**Acción:**
+
+```bash
 bash infra/policy.sh solo-pagos <<'EOF'
 path "secret/data/pagos/api" {
   capabilities = ["read"]
@@ -39,14 +57,47 @@ path "sys/internal/ui/mounts/secret/*" {
   capabilities = ["read"]
 }
 EOF
+```
+
+**Por qué:** el caso «secreto ausente» necesita permiso de lectura sobre `secret/pagos/no-existe`. Si no está en la policy, el 403 se cuela como si el camino no existiera.
+
+**Resultado esperado:** `Policy solo-pagos escrita.`
+
+### 3 — Policy del rol que no lee pagos
+
+**Acción:**
+
+```bash
 bash infra/policy.sh sin-pagos <<'EOF'
 path "secret/data/nominas/api" {
   capabilities = ["read"]
 }
 EOF
+```
+
+**Por qué:** `PASS sin-permiso` necesita un 403 de verdad. Este rol entra bien y mira otro camino.
+
+**Resultado esperado:** `Policy sin-pagos escrita.`
+
+### 4 — Crea los dos roles
+
+**Acción:**
+
+```bash
 vault auth enable approle
 vault write auth/approle/role/pagos token_policies=solo-pagos token_ttl=15m token_max_ttl=1h
 vault write auth/approle/role/sin-pagos token_policies=sin-pagos token_ttl=15m token_max_ttl=1h
+```
+
+**Por qué:** cada `PASS` de login usa su rol. Compartir el `secret_id` de `pagos` con la prueba de permiso convertiría el 403 en un 200.
+
+**Resultado esperado:** `Success! Enabled approle auth method at: approle/` y dos líneas `Success! Data written to:`.
+
+### 5 — Exporta los cuatro identificadores
+
+**Acción:**
+
+```bash
 export ROLE_ID=$(vault read -field=role_id auth/approle/role/pagos/role-id)
 export SECRET_ID=$(vault write -f -field=secret_id auth/approle/role/pagos/secret-id)
 export SIN_ROLE=$(vault read -field=role_id auth/approle/role/sin-pagos/role-id)
@@ -54,11 +105,11 @@ export SIN_SECRET=$(vault write -f -field=secret_id auth/approle/role/sin-pagos/
 echo "listo"
 ```
 
-**Por qué:** el caso «secreto ausente» necesita permiso de lectura sobre `secret/pagos/no-existe`. Si no está en la policy, el 403 se cuela como si el camino no existiera. `sin-pagos` existe para el 403 de verdad.
+**Por qué:** el script los hereda de esta terminal. `echo listo` confirma el paso sin imprimir los identificadores.
 
-**Resultado esperado:** `listo`. Los cuatro identificadores, si haces `echo`, no salen vacíos.
+**Resultado esperado:** `listo`. Los cuatro, si haces `echo` de la longitud, no salen vacíos.
 
-### 2 — Escribe el checklist
+### 6 — Escribe el checklist
 
 **Acción:**
 
@@ -121,11 +172,11 @@ EOF
 chmod +x /tmp/checklist.sh
 ```
 
-**Por qué:** cada línea `PASS` es una afirmación con resultado escrito en el script, no una impresión que interpretas después. El código de salida es 0 solo si las cuatro pasan.
+**Por qué:** cada `marca` es una afirmación con el resultado escrito en el script. El orden es el del camino: login, lectura, camino ausente con ese token, y otro rol para el 403. El código de salida es 0 solo si las cuatro pasan.
 
 **Resultado esperado:** el fichero es ejecutable. Aún no hay ningún `PASS`.
 
-### 3 — Ejecútalo
+### 7 — Ejecútalo
 
 **Acción:**
 
@@ -134,7 +185,7 @@ chmod +x /tmp/checklist.sh
 echo "exit=$?"
 ```
 
-**Por qué:** esta es la línea verde de la integración. El módulo de fallos ya te enseñó a romper cada caso por separado; aquí los cuatro viven en una sola orden, que es lo que lanzarías al repetir la prueba.
+**Por qué:** esta es la línea verde de la integración. Los fallos sueltos ya están en la página anterior; aquí los cuatro viven en una sola orden.
 
 **Resultado esperado:**
 
@@ -152,8 +203,8 @@ exit=0
 ## Comprueba tu entendimiento
 
 **El secreto ausente no es un fallo de login**
-`CAMINO` no hace falta. Mira la línea `PASS ausente`: el mismo token que leyó `clave-pagos` recibió 404 en `pagos/no-existe`.
-→ Si esa línea fuera `FAIL`, el HTTP no fue 404. Lo habitual es un 403 porque quitaste `secret/data/pagos/no-existe` de la policy.
+Mira la línea `PASS ausente`: el mismo token que leyó `clave-pagos` recibió 404 en `pagos/no-existe`.
+→ Si esa línea fuera `FAIL`, el HTTP no fue 404. Lo habitual es un 403 porque quitaste `secret/data/pagos/no-existe` de la policy del paso 2.
 
 ## Reto
 
@@ -178,7 +229,7 @@ sed -i 's/clave-vieja/clave-pagos/' /tmp/checklist.sh
 
 | Síntoma | Causa probable | Cómo arreglarlo |
 |---------|----------------|-----------------|
-| `FAIL login` | `ROLE_ID` o `SECRET_ID` vacíos en esta terminal | Repite los `export` del paso 1 |
-| `FAIL ausente` con el secreto bien creado | La policy de `pagos` no incluye `secret/data/pagos/no-existe` | El 403 no es el 404. Vuelve a escribir `solo-pagos` como en el paso 1 y emite otro `secret_id` |
+| `FAIL login` | `ROLE_ID` o `SECRET_ID` vacíos en esta terminal | Repite el paso 5 |
+| `FAIL ausente` con el secreto bien creado | La policy de `pagos` no incluye `secret/data/pagos/no-existe` | El 403 no es el 404. Vuelve a escribir `solo-pagos` como en el paso 2 y emite otro `secret_id` en el paso 5 |
 | `FAIL sin-permiso` | `SIN_ROLE` es el rol `pagos` | `echo "$SIN_ROLE"` tiene que ser el de `auth/approle/role/sin-pagos` |
-| `unbound variable` | Falta `export` de alguna de las cuatro variables | Paso 1, otra vez, en esta terminal |
+| `unbound variable` | Falta `export` de alguna de las cuatro variables | Paso 5, otra vez, en esta terminal |
