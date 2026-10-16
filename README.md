@@ -57,3 +57,48 @@ Cada demostración y cada laboratorio se hacen **solos**: empiezan reiniciando V
 ## Empieza aquí
 
 → **[M01 — Introducción y arquitectura](labs/M01-introduccion-vault/00-que-es-vault.md)**
+
+## Dónde documentarse
+
+El laboratorio usa la imagen `hashicorp/vault:1.18`. Estas páginas describen los mismos mecanismos, fuera del modo dev.
+
+### Documentación
+
+- [Documentación de Vault](https://developer.hashicorp.com/vault/docs) — índice oficial.
+- [Qué es Vault](https://developer.hashicorp.com/vault/docs/about-vault/what-is-vault) — el problema y los casos de uso del módulo 1.
+- [Arquitectura interna](https://developer.hashicorp.com/vault/docs/internals) — barrier, storage y el camino de una petición.
+- [Sellado](https://developer.hashicorp.com/vault/docs/concepts/seal) — por qué un servidor sellado no entrega secretos.
+- [KV versión 2](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2) — versiones, borrado y metadatos del módulo 2.
+- [CLI](https://developer.hashicorp.com/vault/docs/commands) y [API HTTP](https://developer.hashicorp.com/vault/api-docs) — los dos clientes que usa el curso.
+- [Policies](https://developer.hashicorp.com/vault/docs/concepts/policies), [tokens](https://developer.hashicorp.com/vault/docs/concepts/tokens) y [auditoría](https://developer.hashicorp.com/vault/docs/audit) — el módulo 3.
+- [AppRole](https://developer.hashicorp.com/vault/docs/auth/approle) y [UserPass](https://developer.hashicorp.com/vault/docs/auth/userpass) — aplicación y persona, módulo 4.
+- [Vault Agent](https://developer.hashicorp.com/vault/docs/agent-and-proxy/agent), [plantillas](https://developer.hashicorp.com/vault/docs/agent-and-proxy/agent/template) y [proxy](https://developer.hashicorp.com/vault/docs/agent-and-proxy/agent/apiproxy) — el entrypoint, el render y el proxy de firma de los módulos 5 y 7.
+- [Response wrapping](https://developer.hashicorp.com/vault/docs/concepts/response-wrapping) — el envoltorio de un solo uso del `secret_id`.
+- [Transit](https://developer.hashicorp.com/vault/docs/secrets/transit) — firmar sin exportar la clave privada.
+- [Motor database](https://developer.hashicorp.com/vault/docs/secrets/databases) y [Postgres](https://developer.hashicorp.com/vault/docs/secrets/databases/postgresql) — el usuario que la app recibe al arrancar.
+- [Certificados SSH firmados](https://developer.hashicorp.com/vault/docs/secrets/ssh/signed-ssh-certificates) — la CA con la que `ana` entra por el puerto 2222.
+- [Notas de la 1.18.0](https://developer.hashicorp.com/vault/docs/v1.18.x/release-notes/1.18.0) — la versión del contenedor.
+
+### Tutoriales
+
+- [Biblioteca de tutoriales](https://developer.hashicorp.com/vault/tutorials) — recorridos guiados de HashiCorp, con su propio servidor.
+- [Primeros pasos](https://developer.hashicorp.com/vault/tutorials/get-started) — dev server, primer secreto y policy, en la documentación.
+- [KV con versiones](https://developer.hashicorp.com/vault/tutorials/secrets-management/versioned-kv) — el mismo motor del módulo 2, paso a paso.
+- [AppRole](https://developer.hashicorp.com/vault/tutorials/auth-methods/approle) — `role_id`, `secret_id` y el login de una aplicación.
+- [Introducción segura del secreto](https://developer.hashicorp.com/vault/tutorials/app-integration/secure-introduction) — response wrapping más allá del `secret_id` de este curso.
+- [Credenciales de base de datos](https://developer.hashicorp.com/vault/tutorials/db-credentials/database-secrets) — el motor database con un usuario que caduca.
+
+### Foros y código
+
+- [Foro de Vault](https://discuss.hashicorp.com/c/vault/30) — preguntas de operación, auth methods y secret engines. El índice de toda la comunidad está en [discuss.hashicorp.com](https://discuss.hashicorp.com/).
+- [Código de Vault](https://github.com/hashicorp/vault) — el servidor que corre la imagen del laboratorio.
+- [Incidencias](https://github.com/hashicorp/vault/issues) — fallos y cambios en discusión.
+- [CHANGELOG](https://github.com/hashicorp/vault/blob/main/CHANGELOG.md) — qué entró y qué salió en cada versión. El modo `key_type=dynamic` del motor SSH se quitó en la 1.13; este curso está en la 1.18.
+
+### Para ampliar
+
+- [Blog de HashiCorp](https://www.hashicorp.com/en/blog) — artículos de producto. El de secretos dinámicos está en [Why we need dynamic secrets](https://www.hashicorp.com/en/blog/why-we-need-dynamic-secrets).
+- [Contraseñas SSH de un solo uso](https://developer.hashicorp.com/vault/docs/secrets/ssh/one-time-ssh-passwords) — el otro modo vivo del motor `ssh`, distinto del certificado del módulo 7.
+- [vault-ssh-helper](https://github.com/hashicorp/vault-ssh-helper) — el programa que, en el servidor, comprueba esa contraseña de un solo uso contra Vault.
+- [ssh-keygen](https://man.openbsd.org/ssh-keygen) — cómo OpenSSH lee el certificado que Vault firma (`-L` y el fichero `-cert.pub`).
+- [Motor PKI](https://developer.hashicorp.com/vault/tutorials/pki/pki-engine) — certificados X.509. No es el motor `ssh/` de este curso.
