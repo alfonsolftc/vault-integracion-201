@@ -111,12 +111,12 @@ docker run -d --name destino -p 127.0.0.1:2222:22 --network "$RED" ubuntu:24.04 
 **Acción:**
 
 ```bash
-docker exec destino bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq openssh-server >/tmp/apt.log 2>&1 && echo sshd=instalado'
+docker exec destino bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq openssh-server >/tmp/apt.log 2>&1 && mkdir -p /run/sshd && ssh-keygen -A && /usr/sbin/sshd && pgrep -a sshd'
 ```
 
-**Por qué:** el Ubuntu de Docker no trae `sshd`. Este paso lo instala dentro de `destino`. La salida de `apt` se queda en el contenedor.
+**Por qué:** el Ubuntu de Docker no trae `sshd`, y al instalarlo no lo arranca: el PID 1 es `sleep` y no hay systemd. `systemctl` no tiene bus. Este paso instala el paquete y lanza `/usr/sbin/sshd`. La salida de `apt` se queda en el contenedor. Dentro de `destino`, la comprobación es `pgrep -a sshd`; el puerto de ese proceso es el `22`.
 
-**Resultado esperado:** `sshd=instalado`. Tarda un poco: está instalando el paquete.
+**Resultado esperado:** una línea con `/usr/sbin/sshd` y `listener`. Tarda un poco: está instalando el paquete.
 
 ### 7 — Confía en la CA y arranca sshd
 
@@ -124,12 +124,12 @@ docker exec destino bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get upda
 
 ```bash
 docker cp /tmp/vault-ssh-ca.pub destino:/etc/ssh/vault-ca.pub
-docker exec destino bash -c 'useradd -m -s /bin/bash ana && usermod -p "*" ana && mkdir -p /run/sshd && printf "%s\n" "TrustedUserCAKeys /etc/ssh/vault-ca.pub" "PasswordAuthentication no" "KbdInteractiveAuthentication no" "PubkeyAuthentication yes" "UsePAM no" > /etc/ssh/sshd_config.d/vault.conf && ssh-keygen -A && /usr/sbin/sshd && echo sshd=escucha'
+docker exec destino bash -c 'id ana >/dev/null 2>&1 || useradd -m -s /bin/bash ana; usermod -p "*" ana; mkdir -p /run/sshd; printf "%s\n" "TrustedUserCAKeys /etc/ssh/vault-ca.pub" "PasswordAuthentication no" "KbdInteractiveAuthentication no" "PubkeyAuthentication yes" "UsePAM no" > /etc/ssh/sshd_config.d/vault.conf; pkill sshd || true; sleep 0.3; ssh-keygen -A; /usr/sbin/sshd; pgrep -a sshd'
 ```
 
-**Por qué:** `TrustedUserCAKeys` es la pública de Vault: `sshd` acepta certificados firmados por esa CA y rechaza el resto. `ana` existe como usuario de sistema, sin contraseña. `useradd` deja la cuenta bloqueada y `sshd` entonces ignora el certificado (`account is locked`); `usermod -p "*"` abre la cuenta sin crear una contraseña. `PasswordAuthentication no` cierra el otro camino.
+**Por qué:** `TrustedUserCAKeys` es la pública de Vault: `sshd` acepta certificados firmados por esa CA y rechaza el resto. El proceso que ya estaba en marcha no relee la configuración, así que se para y se vuelve a lanzar. `ana` existe como usuario de sistema, sin contraseña. `useradd` deja la cuenta bloqueada y `sshd` entonces ignora el certificado (`account is locked`); `usermod -p "*"` abre la cuenta sin crear una contraseña. `PasswordAuthentication no` cierra el otro camino.
 
-**Resultado esperado:** `sshd=escucha`.
+**Resultado esperado:** otra vez una línea con `/usr/sbin/sshd` y `listener`.
 
 ### 8 — Elige por dónde llegar al servidor
 
@@ -325,6 +325,7 @@ ssh -i /tmp/ana-ssh \
 | Síntoma | Causa probable | Cómo arreglarlo |
 |---------|----------------|-----------------|
 | `ssh-keygen: command not found` o `ssh: command not found` | Falta `openssh-client` | El `apt-get` del punto de partida |
+| `pgrep` no imprime nada tras el paso 6 | El paquete se instaló y `/usr/sbin/sshd` no llegó a lanzarse | Repite el paso 6. Dentro de `destino`, `systemctl` no arranca nada: el PID 1 es `sleep` |
 | `account is locked` en el log de `sshd`, y la sesión es `Permission denied` | Falta `usermod -p "*"` | Repite el paso 7 |
 | `Permission denied` en el paso 12 | El certificado no está en `/tmp/ana-ssh-cert.pub`, o `SSH_HOST` apunta a otro sitio | Repite los pasos 8, 10 y 12. `echo "$SSH_HOST $SSH_PORT"` tiene que coincidir con un `destino` vivo |
 | `http=403` al firmar | El token no es el de `ana` o la policy no tiene `ssh/sign/acceso` | Repite los pasos 4 y 10 |
