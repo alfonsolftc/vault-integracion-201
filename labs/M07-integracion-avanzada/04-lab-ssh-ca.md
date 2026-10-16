@@ -2,11 +2,11 @@
 
 [← Página anterior](03-lab-firma-transit.md) · [Siguiente página →](05-lab-certificado-en-destino.md)
 
-Vault administra quién entra en un servidor. El servidor es un Ubuntu que arrancas con Docker: tiene `sshd` y el usuario de sistema `ana`, y no tiene contraseña. `ana` entra en Vault con UserPass. `vault ssh -mode=ca` firma su clave y abre la sesión. Sin esa firma, `sshd` responde `Permission denied`. Pedir el principal `root` no produce certificado.
+Vault administra quién entra en un servidor. El servidor es un Ubuntu que arrancas con Docker: tiene `sshd` y el usuario de sistema `ana`, y no tiene contraseña. `ana` entra en Vault con UserPass. `vault ssh -mode=ca` firma su clave. La conexión es `ssh` a `ana@destino`. Sin el certificado, `sshd` responde `Permission denied`. Pedir el principal `root` no produce certificado.
 
 ### Objetivo
 
-`vault ssh -mode=ca -role=acceso` escribe `ana` y `acceso=ok`. La misma orden con `-valid-principals=root` termina en `salida=2` y `root is not a valid value for valid_principals`.
+`ssh` a `ana@destino` escribe `ana` y `acceso=ok`. Antes, `vault ssh -mode=ca -no-exec` deja el certificado al lado de la clave. La misma firma con `-valid-principals=root` termina en `salida=2` y `root is not a valid value for valid_principals`.
 
 ### Punto de partida
 
@@ -19,7 +19,7 @@ Servidor vacío. El comando `vault` de esta terminal corre dentro de `vault-dev`
 
 ### En qué consiste
 
-Crear la CA en el motor `ssh`, levantar el Ubuntu y dejar que confíe en esa CA, y entrar con `vault ssh -mode=ca` usando el token de `ana`.
+Crear la CA en el motor `ssh`, levantar el Ubuntu y dejar que confíe en esa CA, firmar con `vault ssh -mode=ca` usando el token de `ana`, y conectar con `ssh` a `ana@destino`.
 
 ### 1 — Habilita el motor y genera la CA
 
@@ -112,11 +112,11 @@ docker exec -u root vault-dev sh -c 'apk add --no-cache openssh-client >/tmp/apk
 docker exec vault-dev sh -c 'rm -f /tmp/ana-ssh /tmp/ana-ssh.pub; ssh-keygen -t ed25519 -N "" -f /tmp/ana-ssh -C ana@lab -q; stat -c "modo=%a" /tmp/ana-ssh'
 ```
 
-**Por qué:** `vault ssh` no abre la sesión él solo: llama al programa `ssh` en la máquina donde corre el CLI. En este curso esa máquina es el contenedor `vault-dev`, y la imagen no trae `ssh`. La clave de `ana` nace ahí, modo `600`. Vault solo va a ver la pública. El destino del paso siguiente es `ana@destino`, no `127.0.0.1`.
+**Por qué:** el cliente `ssh` tiene que estar en la misma máquina que el CLI, porque la conexión sale de ahí. En este curso esa máquina es el contenedor `vault-dev`, y la imagen no trae `ssh`. La clave de `ana` nace ahí, modo `600`. Vault solo va a ver la pública. El paso 8 conecta a `ana@destino`, no a `127.0.0.1`.
 
 **Resultado esperado:** `/usr/bin/ssh` y `modo=600`.
 
-### 7 — Entra con vault ssh
+### 7 — Ana firma con vault ssh
 
 **Acción:**
 
@@ -126,31 +126,46 @@ curl -sS -o /tmp/ana.json -w "http=%{http_code}\n" --request POST \
   "${VAULT_ADDR}/v1/auth/userpass/login/ana"
 ANA=$(python3 -c 'import json; print(json.load(open("/tmp/ana.json"))["auth"]["client_token"])')
 echo "token_len=${#ANA}"
-VAULT_TOKEN="$ANA" vault ssh -mode=ca -role=acceso \
+VAULT_TOKEN="$ANA" vault ssh -format=json -mode=ca -role=acceso \
   -public-key-path=/tmp/ana-ssh.pub \
   -private-key-path=/tmp/ana-ssh \
-  -strict-host-key-checking=no \
-  -user-known-hosts-file=/dev/null \
   -valid-principals=ana \
-  ana@destino \
-  -o UserKnownHostsFile=/dev/null \
+  -no-exec \
+  ana@destino > /tmp/ssh-sign.json
+python3 -c 'import json; d=json.load(open("/tmp/ssh-sign.json"))["data"]; open("/tmp/ana-ssh-cert.pub","w").write(d["signed_key"]+"\n"); print("cert_bytes", len(d["signed_key"]))'
+docker cp /tmp/ana-ssh-cert.pub vault-dev:/tmp/ana-ssh-cert.pub
+```
+
+**Por qué:** el login es el de `ana` / `ana-lab`. `VAULT_TOKEN` de esta orden es el suyo, no el `root`: la policy `firma-ssh` es la que firma. `-mode=ca` pide el certificado al rol `acceso`. `-no-exec` no abre la sesión: deja el certificado en esta terminal para copiarlo al lado de la clave, dentro de `vault-dev`. OpenSSH solo lo usa si el fichero se llama `/tmp/ana-ssh-cert.pub`. `ana@destino` aquí es el host para el que se pide la firma; la conexión es el paso siguiente.
+
+**Resultado esperado:** el login es `http=200` y `token_len=95`. Después, `cert_bytes` por encima de 500.
+
+### 8 — Conecta: ssh ana@destino
+
+**Acción:**
+
+```bash
+docker exec vault-dev ssh -i /tmp/ana-ssh \
+  -o IdentitiesOnly=yes \
   -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null \
   -o LogLevel=ERROR \
+  ana@destino \
   'whoami; echo acceso=ok'
 ```
 
-**Por qué:** el login es el de `ana` / `ana-lab`. `VAULT_TOKEN` de esta orden es el suyo, no el `root`: la policy `firma-ssh` es la que firma. `-mode=ca` pide el certificado al rol `acceso` y conecta a `destino`. La privada no sale de `vault-dev`. No hay contraseña en el servidor.
+**Por qué:** esta es la conexión. `ssh` corre en `vault-dev`, que es donde están la clave y el certificado, y desde ahí el nombre `destino` es el puerto 22. El usuario es `ana`. No hay contraseña en el servidor: `sshd` acepta el certificado porque está firmado por la CA de `TrustedUserCAKeys`.
 
-**Resultado esperado:** el login es `http=200` y `token_len=95`. Después:
+**Resultado esperado:**
 
 ```text
 ana
 acceso=ok
 ```
 
-![vault ssh -mode=ca entra como ana y el servidor escribe acceso=ok](../img/M07-04-cert.png)
+![ssh ana@destino entra y el servidor escribe acceso=ok](../img/M07-04-cert.png)
 
-### 8 — Un principal que el rol no firma
+### 9 — Un principal que el rol no firma
 
 **Acción:**
 
@@ -168,7 +183,7 @@ VAULT_TOKEN="$ANA" vault ssh -mode=ca -role=acceso \
 
 ![Pedir el principal root responde 400](../img/M07-04-root.png)
 
-### 9 — Quita el servidor
+### 10 — Quita el servidor
 
 **Acción:**
 
@@ -197,12 +212,13 @@ docker exec vault-dev sh -c 'grep -c "BEGIN OPENSSH PRIVATE KEY" /tmp/ana-ssh; s
 
 ### 1 — La clave sola no entra
 
-Con `destino` todavía en marcha, entra en `ana@destino` usando `/tmp/ana-ssh` y sin `vault ssh`.
+Con `destino` todavía en marcha, aparta el certificado y entra en `ana@destino` solo con `/tmp/ana-ssh`.
 
 <details>
 <summary>Ver solución</summary>
 
 ```bash
+docker exec vault-dev mv /tmp/ana-ssh-cert.pub /tmp/ana-ssh-cert.bak
 docker exec vault-dev ssh -i /tmp/ana-ssh \
   -o IdentitiesOnly=yes \
   -o BatchMode=yes \
@@ -211,9 +227,10 @@ docker exec vault-dev ssh -i /tmp/ana-ssh \
   -o LogLevel=ERROR \
   -o ConnectTimeout=5 \
   ana@destino whoami || echo "salida=$?"
+docker exec vault-dev mv /tmp/ana-ssh-cert.bak /tmp/ana-ssh-cert.pub
 ```
 
-`Permission denied (publickey).` y `salida=255`. No hay `authorized_keys`. `sshd` solo fía de un certificado firmado por la CA. Al acabar: `docker rm -f destino`.
+`Permission denied (publickey).` y `salida=255`. Sin el fichero `-cert.pub`, OpenSSH presenta la clave sola y no hay `authorized_keys`. `sshd` solo fía de un certificado firmado por la CA. Al acabar: `docker rm -f destino`.
 
 </details>
 
@@ -227,7 +244,7 @@ docker exec vault-dev ssh -i /tmp/ana-ssh \
 | `account is locked` en el log de `sshd`, y la sesión es `Permission denied` | Falta `usermod -p "*"` | Repite el paso 5 |
 | `ssh: executable file not found` o `exec: "ssh": executable file not found` | El cliente `ssh` no está en `vault-dev` | Repite el paso 6 |
 | `failed to read public key /tmp/ana-ssh.pub` | La clave se generó en esta terminal y el CLI corre dentro de `vault-dev` | La clave tiene que nacer con el `docker exec vault-dev ssh-keygen` del paso 6 |
-| `Permission denied` en el paso 7 | La CA no está en `/etc/ssh/vault-ca.pub`, o `sshd` arrancó antes de copiarla | Repite el paso 5 y el paso 7 |
+| `Permission denied` en el paso 8 | Falta `/tmp/ana-ssh-cert.pub` dentro de `vault-dev`, o la CA no está en `/etc/ssh/vault-ca.pub` | Repite los pasos 5, 7 y 8. El certificado tiene que llamarse `ana-ssh-cert.pub`, al lado de `ana-ssh` |
 | `http=403` al firmar | El token no es el de `ana`, o la policy no tiene `ssh/sign/acceso` | Repite los pasos 4 y 7. `VAULT_TOKEN="$ANA"` tiene que ir delante de `vault ssh` |
 | `http=400` al crear el rol, con `expected a map` | `default_extensions` se envió como texto | Usa el `curl` del paso 3 |
 | `Could not resolve hostname destino` | `destino` no está en la red de `vault-dev`, o el CLI de Vault está instalado en esta máquina y no dentro del contenedor | `echo "$RED"` tiene que ser la red de `vault-dev`. Repite el paso 5 |
