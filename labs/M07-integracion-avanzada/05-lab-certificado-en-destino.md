@@ -4,7 +4,7 @@
 
 Vault 1.18 no entra por SSH en el servidor para dejar una clave: ese modo, `key_type=dynamic`, ya no existe. Quien escribe el fichero es Vault Agent, dentro del Ubuntu. Cuando `ana` guarda su certificado en `secret/ssh/ana`, Agent lo deja en `/home/ana/.ssh/ana-ssh-cert.pub`. Cuando el campo queda vacío, Agent borra el fichero.
 
-Ese fichero es la copia en la máquina. `sshd` no lo lee para autorizar. La sesión SSH es el laboratorio anterior, con `vault ssh -mode=ca`.
+Ese fichero es la copia en la máquina. `sshd` no lo lee para autorizar. La sesión SSH es el laboratorio anterior: `ssh -p 2222 ana@127.0.0.1`.
 
 ### Objetivo
 
