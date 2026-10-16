@@ -1,6 +1,6 @@
 # secret_id envuelto
 
-[← Página anterior](01-lab-huella-en-fichero.md) · [Siguiente página →](03-lab-firma-transit.md)
+[← Página anterior](01-lab-huella-del-codigo.md) · [Siguiente página →](03-lab-firma-transit.md)
 
 El canal por el que viaja el `secret_id` puede acabar en un log. Lo que se escribe ahí es un wrapping token de tres minutos. No entra en el login. Agent lo abre una vez, borra el fichero y el segundo unwrap ya no existe.
 

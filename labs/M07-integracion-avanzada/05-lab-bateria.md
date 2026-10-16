@@ -21,7 +21,7 @@ Servidor vacío, desde la raíz del repo. El script llama a `vault` dentro de `v
 
 El script prepara el KV, las dos policies, Transit y los dos roles. Luego afirma, en este orden:
 
-- **fichero** — la huella de `clave-pagos`, modo `600`, `entorno=limpio`, y ni la salida ni el log de Agent contienen el valor.
+- **fichero** — con el fuente certificado Agent escribe `codigo=certificado` y `pago=listo`; con un `echo` de la clave escribe `codigo=modificado` y no arranca el proceso. En ninguno de los dos logs aparece el valor.
 - **envoltorio** — el wrapping token en el campo `secret_id` da HTTP 400, Agent entra, borra el fichero y el segundo unwrap ya no existe. El log de Agent no contiene el token.
 - **firma** — el prefijo es `vault:v1:`, la verificación es válida, el export de la app es 403, la salida no lleva un token `hvs.` y el token `root` recibe `private key material is not exportable`.
 
@@ -57,7 +57,7 @@ bash infra/policy.sh solo-pagos <<'EOF' >/dev/null
 path "secret/data/pagos/api" {
   capabilities = ["read"]
 }
-path "secret/metadata/pagos/api" {
+path "secret/data/pagos/codigo" {
   capabilities = ["read"]
 }
 EOF
@@ -90,13 +90,24 @@ printf '%s' "$FSECRET" | docker exec -i pagos tee /tmp/fsecret >/dev/null
 docker exec -i pagos tee /tmp/negocio.sh >/dev/null <<'EOF'
 #!/bin/sh
 set -eu
-if [ -n "${CLAVE:-}" ]; then
-  echo "CLAVE en entorno" >&2
+if [ -z "${CLAVE:-}" ]; then
+  echo "falta CLAVE" >&2
   exit 1
 fi
-modo=$(stat -c %a /tmp/clave)
-huella=$(sha256sum /tmp/clave | awk '{print substr($1,1,12)}')
-echo "huella=${huella} modo=${modo} entorno=limpio"
+echo "pago=listo"
+EOF
+HUELLA=$(docker exec pagos sha256sum /tmp/negocio.sh | awk '{print substr($1,1,12)}')
+v kv put secret/pagos/codigo huella="$HUELLA" >/dev/null
+docker exec -i pagos tee /tmp/validar.sh >/dev/null <<'EOF'
+#!/bin/sh
+set -eu
+medida=$(sha256sum /tmp/negocio.sh | awk '{print substr($1,1,12)}')
+if [ "$medida" != "${HUELLA:-}" ]; then
+  echo "codigo=modificado" >&2
+  exit 1
+fi
+echo "codigo=certificado"
+exec /bin/sh /tmp/negocio.sh
 EOF
 docker exec -i pagos tee /tmp/agent.hcl >/dev/null <<'EOF'
 pid_file = "/tmp/vault-agent.pid"
@@ -112,29 +123,32 @@ auto_auth {
     }
   }
 }
-template {
-  destination = "/tmp/clave"
-  perms = "0600"
+env_template "CLAVE" {
   contents = "{{ with secret \"secret/data/pagos/api\" }}{{ .Data.data.clave }}{{ end }}"
 }
+env_template "HUELLA" {
+  contents = "{{ with secret \"secret/data/pagos/codigo\" }}{{ .Data.data.huella }}{{ end }}"
+}
+exec {
+  command = ["/bin/sh", "/tmp/validar.sh"]
+  restart_on_secret_changes = "never"
+}
 EOF
-docker exec -d pagos sh -c 'vault agent -config=/tmp/agent.hcl > /tmp/agent.log 2>&1'
-ok=no
-for _i in $(seq 1 30); do
-  if docker exec pagos test -f /tmp/clave; then ok=si; break; fi
-  sleep 0.2
-done
-salida=$(docker exec pagos /bin/sh /tmp/negocio.sh 2>&1 || true)
-esperada=$(printf '%s' 'clave-pagos' | sha256sum | awk '{print substr($1,1,12)}')
-if [[ "$ok" == "si" && "$salida" == "huella=${esperada} modo=600 entorno=limpio" ]] \
-  && ! printf '%s' "$salida" | grep -q 'clave-pagos' \
-  && ! docker exec pagos grep -q 'clave-pagos' /tmp/agent.log; then
+docker exec pagos sh -c 'rm -f /tmp/vault-agent.pid; vault agent -config=/tmp/agent.hcl > /tmp/agent-ok.log 2>&1' || true
+cert=$(docker exec pagos grep -c '^codigo=certificado$' /tmp/agent-ok.log || true)
+listo=$(docker exec pagos grep -c '^pago=listo$' /tmp/agent-ok.log || true)
+docker exec pagos sh -c 'printf "%s\n" "echo \"\$CLAVE\"" >> /tmp/negocio.sh'
+docker exec pagos sh -c 'rm -f /tmp/vault-agent.pid; vault agent -config=/tmp/agent.hcl > /tmp/agent-malo.log 2>&1' || true
+mod=$(docker exec pagos grep -c '^codigo=modificado$' /tmp/agent-malo.log || true)
+listo_malo=$(docker exec pagos grep -c '^pago=listo$' /tmp/agent-malo.log || true)
+if [[ "$cert" == "1" && "$listo" == "1" && "$mod" == "1" && "$listo_malo" == "0" ]] \
+  && ! docker exec pagos grep -q 'clave-pagos' /tmp/agent-ok.log /tmp/agent-malo.log; then
   marca fichero si
 else
   marca fichero no
-  echo "$salida"
+  echo "certificado=${cert} listo=${listo} modificado=${mod} listo_malo=${listo_malo}"
 fi
-docker exec pagos sh -c 'kill $(cat /tmp/vault-agent.pid) 2>/dev/null || true'
+docker exec pagos rm -f /tmp/vault-agent.pid
 sleep 0.3
 
 WRAP=$(v write -wrap-ttl=3m -field=wrapping_token -f auth/approle/role/pagos/secret-id)
@@ -338,7 +352,7 @@ El 403 es el `POST` de firma. La clave privada no sale en esa línea. Para dejar
 
 | Síntoma | Causa probable | Cómo arreglarlo |
 |---------|----------------|-----------------|
-| `FAIL fichero` y una línea `huella=` distinta | El KV no tiene `clave-pagos` o el fichero se renderizó con otra cosa | `bash infra/reiniciar-vault.sh`, `source infra/entorno.sh` y el paso 2 |
+| `FAIL fichero` y `certificado=0` o `modificado=0` | Agent no entregó con el fuente certificado, o no se negó al añadir el `echo` | `bash infra/reiniciar-vault.sh`, `source infra/entorno.sh` y el paso 2 |
 | `FAIL envoltorio` | El login no fue 400, Agent no entró o el unwrap todavía devuelve el `secret_id` | Reinicia y ejecuta otra vez. Cinco logins fallidos bloquean el rol; el servidor limpio lo deshace |
 | `FAIL firma` y `HTTP/1.1 403` | La policy `firma-pagos` no puede `transit/sign/pagos` | Es el reto, o el bloque de la policy se borró sin querer. Restaura el script del paso 1 |
 | `VAULT_ADDR` vacío y `FAIL envoltorio` | El script se lanzó sin `source infra/entorno.sh` | Carga el entorno en esa terminal y repite |

@@ -6,7 +6,7 @@ En el módulo 5 la aplicación dice la clave en voz alta para que veas que lleg�
 
 ## Qué aprenderás
 
-- Dejar el secreto en un fichero de modo `600` con Vault Agent, y afirmar una huella en vez del valor.
+- Registrar la huella del fuente de negocio y dejar que Vault Agent inyecte la clave solo si ese fichero no ha cambiado.
 - Entregar el `secret_id` dentro de un envoltorio de un solo uso, y ver que un echo de ese token no sirve para entrar.
 - Firmar con el motor Transit a través del proxy de Agent, sin que la app reciba la clave privada ni el token.
 - Usar el motor SSH como CA: Vault firma la clave pública y el certificado lleva el principal; la CA privada no sale.
@@ -18,19 +18,19 @@ Hay cuatro entregas avanzadas. Las tres primeras usan Vault Agent en el contened
 
 | Escenario | La salida enseña | El dato se queda |
 |-----------|------------------|------------------|
-| Fichero | `huella=` de 12 hexadecimales y `modo=600` | El valor, en `/tmp/clave` |
+| Huella del código | `codigo=certificado` y `pago=listo`; si el fuente cambia, `codigo=modificado` | La clave, en el entorno del proceso, solo cuando la huella coincide |
 | Envoltorio | Un login `400` y un segundo unwrap `400` | El `secret_id`, abierto una vez por Agent |
 | Firma Transit | `firma_prefijo=vault:v1:` y `valida=true` | La clave privada, dentro de Transit |
 | SSH CA | Tipo `user certificate` y principal `pagos` | La CA privada en Vault; la del cliente, en modo 600 |
 
-En Vault 1.18 un bloque `exec` exige al menos un `env_template`, y un `template` de fichero no puede ir en el mismo `agent.hcl` que un `env_template`. El `exec` del módulo 5 mete la clave en el entorno del proceso. Aquí Agent queda en marcha, escribe el fichero y el proceso de negocio se arranca aparte.
+La huella es el prefijo de doce caracteres del sha256 de `negocio.sh`, guardada en Vault al certificar el fuente. Agent la lee y la vuelve a medir en la máquina de la aplicación. El proceso que arranca es `validar.sh`: si coinciden, hace `exec` de `negocio.sh` y ese proceso hereda `CLAVE`. Si alguien editó el fuente para imprimir la clave, `negocio.sh` no arranca.
 
 ```text
-fichero                         envoltorio                      firma Transit                 SSH CA
+huella del código               envoltorio                      firma Transit                 SSH CA
 vault agent                     vault agent                     vault agent                   motor ssh/
-  template → /tmp/clave 0600      unwrap del wrapping token       proxy 127.0.0.1:8100           config/ca + roles/
-negocio.sh lee el fichero       el secret_id no se imprime      firmar.sh pide la firma       cliente: clave pública
-imprime la huella               el token de entrega ya no vale   imprime vault:v1:             certificado *-cert.pub
+  lee la huella registrada       unwrap del wrapping token       proxy 127.0.0.1:8100           config/ca + roles/
+  mide negocio.sh                 el secret_id no se imprime      firmar.sh pide la firma       cliente: clave pública
+  solo entonces inyecta CLAVE     el token de entrega ya no vale  imprime vault:v1:             certificado *-cert.pub
 ```
 
 El envoltorio es response wrapping. `vault write -wrap-ttl` devuelve un wrapping token. Ese token no es un `secret_id`: el login con él responde `invalid role or secret ID`. Agent, con `secret_id_response_wrapping_path`, lo abre una vez. El segundo `vault unwrap` responde `wrapping token is not valid or does not exist`.
@@ -46,8 +46,8 @@ SSH CA no es el motor `pki` (X.509). Es `ssh/` con `key_type=ca`. Vault firma la
 
 | # | Página | Qué hay |
 |---|--------|---------|
-| 00 | [El secreto no sale por el echo](00-secreto-sin-echo.md) | Fichero, envoltorio y firma Transit, en un mismo servidor |
-| 01 | [La huella en el fichero](01-lab-huella-en-fichero.md) | La huella cambia al rotar y el valor no aparece |
+| 00 | [El secreto no sale por el echo](00-secreto-sin-echo.md) | Huella del código, envoltorio y firma Transit, en un mismo servidor |
+| 01 | [La huella del código](01-lab-huella-del-codigo.md) | Agent entrega la clave si el fuente coincide, y se niega si alguien lo modifica |
 | 02 | [secret_id envuelto](02-lab-secret-id-envuelto.md) | El token de entrega no entra, y Agent lo gasta |
 | 03 | [La app firma](03-lab-firma-transit.md) | `vault:v1:` y la clave privada no se exporta |
 | 04 | [SSH con Vault como CA](04-lab-ssh-ca.md) | Certificado de usuario con principal `pagos` |

@@ -1,8 +1,8 @@
 # El secreto no sale por el echo
 
-[← Página anterior](README.md) · [Siguiente página →](01-lab-huella-en-fichero.md)
+[← Página anterior](README.md) · [Siguiente página →](01-lab-huella-del-codigo.md)
 
-La aplicación de pagos sigue necesitando la clave. La prueba ya no consiste en oírla. Vault Agent deja el valor en un fichero, el `secret_id` llega envuelto y, cuando la app solo tiene que firmar, la clave privada no sale de Transit.
+La aplicación de pagos sigue necesitando la clave. La prueba ya no consiste en oírla. Vault Agent mide el fuente de negocio y solo inyecta la clave si esa huella es la que se certificó. El `secret_id` llega envuelto y, cuando la app solo tiene que firmar, la clave privada no sale de Transit.
 
 ## Punto de partida
 
@@ -23,7 +23,7 @@ bash infra/policy.sh solo-pagos <<'EOF'
 path "secret/data/pagos/api" {
   capabilities = ["read"]
 }
-path "secret/metadata/pagos/api" {
+path "secret/data/pagos/codigo" {
   capabilities = ["read"]
 }
 EOF
@@ -37,7 +37,7 @@ echo "role_len=${#ROLE_ID} secret_len=${#SECRET_ID}"
 
 La metadata queda en `version` `1`. La última línea es `role_len=36 secret_len=36`.
 
-2. El contenedor `pagos` es la máquina de la aplicación, en la red de `vault-dev`. La imagen trae el binario `vault` para ejecutar Agent. El proceso de negocio es un `sh` que no llama a ese binario para leer la clave: lee un fichero.
+2. El contenedor `pagos` es la máquina de la aplicación, en la red de `vault-dev`. La imagen trae el binario `vault` para ejecutar Agent. El proceso de negocio es un `sh` que no llama a ese binario: recibe `CLAVE` solo después de que Agent haya comprobado la huella del fuente.
 
 ```bash
 docker rm -f pagos >/dev/null 2>&1 || true
@@ -48,7 +48,7 @@ docker run -d --name pagos --network "$RED" --entrypoint sleep hashicorp/vault:1
 
 `red=` muestra el nombre de la red, en este laboratorio `infra_default`. Desde `pagos`, Vault se alcanza por `vault-dev`.
 
-3. `/tmp/negocio.sh` exige que `CLAVE` no esté en el entorno, lee `/tmp/clave` y escribe la huella de doce caracteres y el modo del fichero. Si el modo no es `600`, se detiene.
+3. `/tmp/negocio.sh` es el fuente que se certifica. Exige `CLAVE` y escribe `pago=listo`. No escribe el valor. La huella de doce caracteres se calcula sobre ese fichero y se guarda en `secret/pagos/codigo`.
 
 ```bash
 printf '%s' "$ROLE_ID" | docker exec -i pagos tee /tmp/role_id >/dev/null
@@ -56,30 +56,35 @@ printf '%s' "$SECRET_ID" | docker exec -i pagos tee /tmp/secret_id >/dev/null
 docker exec -i pagos tee /tmp/negocio.sh >/dev/null <<'EOF'
 #!/bin/sh
 set -eu
-if [ -n "${CLAVE:-}" ]; then
-  echo "CLAVE en entorno" >&2
+if [ -z "${CLAVE:-}" ]; then
+  echo "falta CLAVE" >&2
   exit 1
 fi
-if [ ! -f /tmp/clave ]; then
-  echo "falta fichero" >&2
-  exit 1
-fi
-modo=$(stat -c %a /tmp/clave)
-if [ "$modo" != "600" ]; then
-  echo "modo=${modo}" >&2
-  exit 1
-fi
-huella=$(sha256sum /tmp/clave | awk '{print substr($1,1,12)}')
-echo "huella=${huella} modo=${modo} entorno=limpio"
+echo "pago=listo"
 EOF
 docker exec pagos chmod +x /tmp/negocio.sh
+HUELLA=$(docker exec pagos sha256sum /tmp/negocio.sh | awk '{print substr($1,1,12)}')
+vault kv put secret/pagos/codigo huella="$HUELLA" >/dev/null
+echo "huella=${HUELLA}"
 ```
 
-Los `tee` terminan sin texto. El script todavía no tiene fichero que leer.
+Los `tee` terminan sin texto. La última línea es `huella=b1501cb434fd`.
 
-4. `agent.hcl` autentica con AppRole y renderiza el secreto en `/tmp/clave` con `perms = "0600"`. Un KV v2 no trae lease, así que `static_secret_render_interval` vuelve a leer cada cinco segundos. No hay `env_template` ni `exec`: en esta versión del binario esas dos piezas se excluyen con el `template` de fichero, y el `exec` es el camino que mete el valor en el entorno.
+4. `validar.sh` es el proceso que arranca Agent. Mide `negocio.sh` y lo compara con `HUELLA`. Si coinciden, hace `exec` del proceso de negocio, que hereda `CLAVE`. `agent.hcl` entrega las dos variables y no arranca `negocio.sh` directamente.
 
 ```bash
+docker exec -i pagos tee /tmp/validar.sh >/dev/null <<'EOF'
+#!/bin/sh
+set -eu
+medida=$(sha256sum /tmp/negocio.sh | awk '{print substr($1,1,12)}')
+if [ "$medida" != "${HUELLA:-}" ]; then
+  echo "codigo=modificado" >&2
+  exit 1
+fi
+echo "codigo=certificado"
+exec /bin/sh /tmp/negocio.sh
+EOF
+docker exec pagos chmod +x /tmp/validar.sh
 docker exec -i pagos tee /tmp/agent.hcl >/dev/null <<'EOF'
 pid_file = "/tmp/vault-agent.pid"
 
@@ -97,51 +102,44 @@ auto_auth {
   }
 }
 
-template_config {
-  static_secret_render_interval = "5s"
-}
-
-template {
-  destination = "/tmp/clave"
-  perms = "0600"
+env_template "CLAVE" {
   contents = "{{ with secret \"secret/data/pagos/api\" }}{{ .Data.data.clave }}{{ end }}"
 }
+
+env_template "HUELLA" {
+  contents = "{{ with secret \"secret/data/pagos/codigo\" }}{{ .Data.data.huella }}{{ end }}"
+}
+
+exec {
+  command = ["/bin/sh", "/tmp/validar.sh"]
+  restart_on_secret_changes = "never"
+}
 EOF
-docker exec -d pagos sh -c 'vault agent -config=/tmp/agent.hcl > /tmp/agent.log 2>&1'
-for i in $(seq 1 30); do
-  docker exec pagos test -f /tmp/clave && break
-  sleep 0.2
-done
-docker exec pagos /bin/sh /tmp/negocio.sh | tee /tmp/h1.txt
-printf '%s' 'clave-v1' | sha256sum | awk '{print "calculada=" substr($1,1,12)}'
+docker exec pagos sh -c 'rm -f /tmp/vault-agent.pid; vault agent -config=/tmp/agent.hcl > /tmp/agent-ok.log 2>&1'
+docker exec pagos grep -E 'codigo=certificado|pago=listo' /tmp/agent-ok.log
 ```
 
-La salida del script es `huella=1d697ee2f7be modo=600 entorno=limpio`. `calculada=1d697ee2f7be` es la misma huella, obtenida en esta terminal a partir del valor conocido, sin leer `/tmp/clave`. El log de Agent tiene `rendered "(dynamic)" => "/tmp/clave"`.
+El primer comando termina en 0. Después salen `codigo=certificado` y `pago=listo`. El log también tiene `rendered "(dynamic)" => "CLAVE"`, sin el valor.
 
-![Agent escribe el fichero y el proceso imprime la huella, el modo 600 y entorno limpio](../img/M07-00-fichero.png)
+![Agent entrega la clave y el proceso escribe pago=listo](../img/M07-00-fichero.png)
 
-5. Una segunda escritura cambia el valor. El mismo script, lanzado otra vez cuando Agent ya ha vuelto a renderizar, imprime otra huella. Ni el log ni las dos salidas contienen `clave-v1` ni `clave-v2`.
+5. Añadir `echo "$CLAVE"` cambia el fuente. La huella registrada sigue en `b1501cb434fd`. Agent vuelve a medir, no arranca `negocio.sh` y sale con código 1. Ni ese log ni el anterior contienen `clave-v1`.
 
 ```bash
-vault kv put secret/pagos/api clave=clave-v2 >/dev/null
-H1=$(cut -d' ' -f1 /tmp/h1.txt)
-for i in $(seq 1 12); do
-  docker exec pagos /bin/sh /tmp/negocio.sh > /tmp/h2.txt
-  grep -q "$H1" /tmp/h2.txt || break
-  sleep 1
-done
-echo "esperas=$i"
-cat /tmp/h2.txt
-docker exec pagos cat /tmp/agent.log > /tmp/agent-host.log
-if grep -E 'clave-v1|clave-v2' /tmp/h1.txt /tmp/h2.txt /tmp/agent-host.log; then
+docker exec pagos sh -c 'printf "%s\n" "echo \"\$CLAVE\"" >> /tmp/negocio.sh'
+echo "registrada=$(vault kv get -field=huella secret/pagos/codigo)"
+docker exec pagos sha256sum /tmp/negocio.sh | awk '{print "medida=" substr($1,1,12)}'
+docker exec pagos sh -c 'rm -f /tmp/vault-agent.pid; vault agent -config=/tmp/agent.hcl > /tmp/agent-malo.log 2>&1' || echo "salida=$?"
+docker exec pagos grep -E 'codigo=|pago=' /tmp/agent-malo.log
+if docker exec pagos grep -q 'clave-v1' /tmp/agent-ok.log /tmp/agent-malo.log; then
   echo eco=si
 else
   echo eco=no
 fi
-docker exec pagos sh -c 'kill $(cat /tmp/vault-agent.pid)'
+docker exec pagos rm -f /tmp/vault-agent.pid
 ```
 
-`esperas=` es un entero pequeño. La segunda línea es `huella=50b3a5e0f38e modo=600 entorno=limpio`. Después sale `eco=no`.
+`registrada=b1501cb434fd` y `medida=aa264905fb45`. Después, `salida=1`, `codigo=modificado` y `eco=no`. No aparece `pago=listo`: el proceso de negocio no ha arrancado.
 
 6. El `secret_id` de la entrega siguiente no se escribe en claro. `-wrap-ttl=3m` devuelve un wrapping token. Esta terminal solo imprime su longitud. Usarlo como `secret_id` en el login responde 400, y el token sigue entero: ese POST no lo abre.
 
@@ -294,4 +292,4 @@ La línea de la app es `firma_prefijo=vault:v1: valida=true export_app=403 token
 
 ## Qué queda visto
 
-Tres pruebas, y en ninguna sale el secreto. El fichero da una huella que cambia al rotar. El wrapping token no entra en el login y, después de Agent, ya no se puede abrir. Transit firma `pago:42` y se niega a exportar la clave privada. Cada una se construye sola en [la huella en el fichero](01-lab-huella-en-fichero.md), [secret_id envuelto](02-lab-secret-id-envuelto.md) y [la app firma](03-lab-firma-transit.md). Vault como CA SSH, firmando un certificado de usuario, está en [SSH con Vault como CA](04-lab-ssh-ca.md). Las tres primeras juntas están en [la batería](05-lab-bateria.md).
+Tres pruebas, y en ninguna sale el secreto. Agent entrega la clave solo si la huella del fuente coincide; si el script se modifica para imprimirla, el proceso no arranca. El wrapping token no entra en el login y, después de Agent, ya no se puede abrir. Transit firma `pago:42` y se niega a exportar la clave privada. Cada una se construye sola en [la huella del código](01-lab-huella-del-codigo.md), [secret_id envuelto](02-lab-secret-id-envuelto.md) y [la app firma](03-lab-firma-transit.md). Vault como CA SSH, firmando un certificado de usuario, está en [SSH con Vault como CA](04-lab-ssh-ca.md). Las tres primeras juntas están en [la batería](05-lab-bateria.md).
