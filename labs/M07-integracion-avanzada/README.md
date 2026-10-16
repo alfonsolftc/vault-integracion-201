@@ -9,7 +9,7 @@ En el módulo 5 la aplicación dice la clave en voz alta para que veas que lleg�
 - Registrar la huella del fuente de negocio y dejar que Vault Agent inyecte la clave solo si ese fichero no ha cambiado.
 - Entregar el `secret_id` dentro de un envoltorio de un solo uso, y ver que un echo de ese token no sirve para entrar.
 - Firmar con el motor Transit a través del proxy de Agent, sin que la app reciba la clave privada ni el token.
-- Entrar por SSH en un Ubuntu levantado con Docker: `ana` se autentica con UserPass y Vault le firma el certificado.
+- Entrar por SSH en un Ubuntu levantado con Docker: `ana` se autentica con UserPass y `vault ssh -mode=ca` abre la sesión.
 - Ejecutar las afirmaciones de fichero, envoltorio y firma Transit en una batería que escribe `PASS` o `FAIL`.
 
 ## Teoría
@@ -21,23 +21,23 @@ Hay cuatro entregas avanzadas. Las tres primeras usan Vault Agent en el contened
 | Huella del código | `codigo=certificado` y `pago=listo`; si el fuente cambia, `codigo=modificado` | La clave, en el entorno del proceso, solo cuando la huella coincide |
 | Envoltorio | Un login `400` y un segundo unwrap `400` | El `secret_id`, abierto una vez por Agent |
 | Firma Transit | `firma_prefijo=vault:v1:` y `valida=true` | La clave privada, dentro de Transit |
-| SSH | `ana` y `acceso=ok` dentro del Ubuntu | La CA privada en Vault; sin certificado, `sshd` niega la sesión |
+| SSH | `ana` y `acceso=ok` con `vault ssh -mode=ca` | La CA privada en Vault; el principal `root` responde 400 |
 
 La huella es el prefijo de doce caracteres del sha256 de `negocio.sh`, guardada en Vault al certificar el fuente. Agent la lee y la vuelve a medir en la máquina de la aplicación. El proceso que arranca es `validar.sh`: si coinciden, hace `exec` de `negocio.sh` y ese proceso hereda `CLAVE`. Si alguien editó el fuente para imprimir la clave, `negocio.sh` no arranca.
 
 ```text
 huella del código               envoltorio                      firma Transit                 SSH
 vault agent                     vault agent                     vault agent                   motor ssh/ + sshd
-  lee la huella registrada       unwrap del wrapping token       proxy 127.0.0.1:8100           Agent escribe la CA
-  mide negocio.sh                 el secret_id no se imprime      firmar.sh pide la firma       y el certificado de ana
-  solo entonces inyecta CLAVE     el token de entrega ya no vale  imprime vault:v1:             sesión por el puerto 2222
+  lee la huella registrada       unwrap del wrapping token       proxy 127.0.0.1:8100           ana entra con UserPass
+  mide negocio.sh                 el secret_id no se imprime      firmar.sh pide la firma       vault ssh -mode=ca
+  solo entonces inyecta CLAVE     el token de entrega ya no vale  imprime vault:v1:             sesión en destino
 ```
 
 El envoltorio es response wrapping. `vault write -wrap-ttl` devuelve un wrapping token. Ese token no es un `secret_id`: el login con él responde `invalid role or secret ID`. Agent, con `secret_id_response_wrapping_path`, lo abre una vez. El segundo `vault unwrap` responde `wrapping token is not valid or does not exist`.
 
 La firma Transit usa el motor `transit`. La app manda el texto `pago:42` al proxy local. Agent añade su token. Transit devuelve `vault:v1:…` y `transit/verify` dice `valid: true`. Leer `transit/export/signing-key/pagos` con el token `root` responde `private key material is not exportable`.
 
-SSH no es el motor `pki` (X.509). Es `ssh/` con `key_type=ca` y una CA Ed25519. Vault Agent, dentro del Ubuntu, escribe la pública de la CA y el certificado de `ana` en cuanto ella lo firma. `sshd` confía en esa CA. Sin el certificado, responde `Permission denied`. Pedir el principal `root` responde 400.
+SSH no es el motor `pki` (X.509). Es `ssh/` con `key_type=ca` y una CA Ed25519. El Ubuntu confía en esa pública. `ana` entra con UserPass y `vault ssh -mode=ca -role=acceso` firma su clave y abre la sesión en `destino`. Pedir el principal `root` responde 400.
 
 > [!NOTE]
 > El log de Agent, al arrancar el proxy, avisa de que esa función pasa al subcomando `vault proxy`. En este módulo el proceso sigue siendo `vault agent`.
@@ -50,7 +50,7 @@ SSH no es el motor `pki` (X.509). Es `ssh/` con `key_type=ca` y una CA Ed25519. 
 | 01 | [La huella del código](01-lab-huella-del-codigo.md) | Agent entrega la clave si el fuente coincide, y se niega si alguien lo modifica |
 | 02 | [secret_id envuelto](02-lab-secret-id-envuelto.md) | El token de entrega no entra, y Agent lo gasta |
 | 03 | [La app firma](03-lab-firma-transit.md) | `vault:v1:` y la clave privada no se exporta |
-| 04 | [Entrar por SSH](04-lab-ssh-ca.md) | UserPass, certificado y sesión en el Ubuntu |
+| 04 | [Entrar por SSH](04-lab-ssh-ca.md) | UserPass y `vault ssh -mode=ca` en el Ubuntu |
 | 05 | [La batería](05-lab-bateria.md) | Tres `PASS` (fichero, envoltorio, firma Transit) |
 
 → Empieza por **[00 — El secreto no sale por el echo](00-secreto-sin-echo.md)**.
