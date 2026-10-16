@@ -7,6 +7,7 @@ services:
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: root
       VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
-    ports:
-      - "8200:8200"
+    # Sin publicar el 8200. En el Codespace ese publish acaba ocupando
+    # 127.0.0.1:8200 y el puente no puede escuchar. Docker local añade
+    # compose.host.yaml, que sí publica el puerto.
     command: ["server", "-dev"]

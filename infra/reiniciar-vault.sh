@@ -3,12 +3,15 @@
 # desaparecen secretos, policies y métodos de auth.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=infra/ensure-docker.sh
+source "$ROOT/infra/ensure-docker.sh"
+# shellcheck source=infra/compose-cmd.sh
+source "$ROOT/infra/compose-cmd.sh"
 
-# En el Codespace el daemon de Docker arranca con el contenedor.
-for _i in $(seq 1 30); do
-  docker info >/dev/null 2>&1 && break
-  sleep 1
-done
+if [[ -f /.dockerenv ]]; then
+  export VAULT_DOCKER_INSTALL=1
+fi
+_vault_ensure_docker ${VAULT_DOCKER_INSTALL:+--install}
 
 # Si esta terminal es el Codespace, suelta la red de Vault antes de borrarla.
 if [[ -f /.dockerenv ]] && docker inspect vault-dev >/dev/null 2>&1; then
@@ -22,8 +25,8 @@ fi
 # Si siguen vivos, compose no puede borrar esa red.
 docker rm -f pagos pagos-db >/dev/null 2>&1 || true
 
-docker compose -f "$ROOT/infra/compose.yaml" down
-docker compose -f "$ROOT/infra/compose.yaml" up -d
+vault_compose "$ROOT" down
+vault_compose "$ROOT" up -d
 
 listo=0
 for _i in $(seq 1 30); do

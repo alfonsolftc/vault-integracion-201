@@ -1,0 +1,6 @@
+# Docker en el propio equipo: el 8200 del contenedor es el de la terminal.
+# En el Codespace no se carga este fichero.
+services:
+  vault:
+    ports:
+      - "8200:8200"

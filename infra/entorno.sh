@@ -9,7 +9,16 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 fi
 
 _ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-docker compose -f "$_ROOT/infra/compose.yaml" up -d
+# shellcheck source=infra/ensure-docker.sh
+source "$_ROOT/infra/ensure-docker.sh"
+# shellcheck source=infra/compose-cmd.sh
+source "$_ROOT/infra/compose-cmd.sh"
+if [[ -f /.dockerenv ]]; then
+  export VAULT_DOCKER_INSTALL=1
+fi
+_vault_ensure_docker ${VAULT_DOCKER_INSTALL:+--install} || return 1
+vault_compose "$_ROOT" up -d
+unset -f vault_compose _vault_ensure_docker
 
 _listo=0
 for _i in $(seq 1 30); do

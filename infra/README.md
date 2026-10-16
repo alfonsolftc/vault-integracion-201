@@ -32,11 +32,20 @@ Si no tienes el CLI de Vault, `entorno.sh` define una función `vault` que ejecu
 1. Haz fork del repositorio.
 2. **Code → Create codespace on main**.
 3. Al terminar, el puerto **8200** queda publicado. Ábrelo solo si quieres la UI; los laboratorios usan la terminal.
-4. En la terminal del Codespace ejecuta el arranque de arriba.
+4. Espera a que termine el **postCreate** (Vault se levanta solo). Si en la terminal sale `docker: command not found`, no sigas: **Ctrl+Shift+P → Codespaces: Rebuild Container** y espera de nuevo. Si persiste, borra el codespace y créalo otra vez desde **Create codespace on main** (tiene que existir la carpeta `.devcontainer` en tu fork).
+5. Si hace falta, ejecuta el arranque de arriba a mano.
+
+### Fallos frecuentes
+
+| Síntoma | Qué hacer |
+|---------|-----------|
+| `docker: command not found` | Rebuild Container; no abras el repo solo en el navegador sin codespace |
+| `El puente a Vault no responde` | `bash infra/reiniciar-vault.sh` otra vez; si falla, `cat /tmp/vault-puente.log` |
+| `Vault no ha respondido` | `docker logs vault-dev` |
 
 ## Contenedores de aplicación (módulo 5)
 
-Los laboratorios de integración arrancan, además de `vault-dev`, el contenedor `pagos` (la máquina de la aplicación, con Vault Agent) y `pagos-db` (Postgres). Esos dos no son el servidor Vault. `bash infra/reiniciar-vault.sh` los elimina.
+Los laboratorios de integración arrancan, además de `vault-dev`, el contenedor `pagos` (la máquina de la aplicación, con Vault Agent) y, en el módulo 5, `pagos-db` (Postgres). Esos contenedores no son el servidor Vault. `bash infra/reiniciar-vault.sh` los elimina.
 
 ## Qué no hace este entorno
 
