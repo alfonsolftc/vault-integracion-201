@@ -1,6 +1,6 @@
 # Entrar por SSH
 
-[← Página anterior](03-lab-firma-transit.md) · [Siguiente página →](05-lab-bateria.md)
+[← Página anterior](03-lab-firma-transit.md) · [Siguiente página →](05-lab-certificado-en-destino.md)
 
 Vault administra quién entra en un servidor. El servidor es un Ubuntu que arrancas con Docker: tiene `sshd` y el usuario de sistema `ana`, y no tiene contraseña. `ana` entra en Vault con UserPass. `vault ssh -mode=ca` firma su clave y abre la sesión. Sin esa firma, `sshd` responde `Permission denied`. Pedir el principal `root` no produce certificado.
 

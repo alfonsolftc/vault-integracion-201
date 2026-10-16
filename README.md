@@ -42,7 +42,8 @@ El laboratorio corre en el navegador (Codespace o Docker). En tu equipo no se in
   - [Laboratorio: secret_id envuelto](labs/M07-integracion-avanzada/02-lab-secret-id-envuelto.md)
   - [Laboratorio: la app firma](labs/M07-integracion-avanzada/03-lab-firma-transit.md)
   - [Laboratorio: entrar por SSH](labs/M07-integracion-avanzada/04-lab-ssh-ca.md)
-  - [Laboratorio: la batería](labs/M07-integracion-avanzada/05-lab-bateria.md)
+  - [Laboratorio: el certificado llega y se va](labs/M07-integracion-avanzada/05-lab-certificado-en-destino.md)
+  - [Laboratorio: la batería](labs/M07-integracion-avanzada/06-lab-bateria.md)
 
 ## Antes de empezar
 

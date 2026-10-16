@@ -25,7 +25,7 @@ if [[ -f /.dockerenv ]] && docker inspect vault-dev >/dev/null 2>&1; then
 fi
 
 # pagos y pagos-db los arrancan los labs de M05 en la red de Vault.
-# destino es el sshd del laboratorio de SSH. Si siguen vivos, compose
+# destino es el Ubuntu de los laboratorios de SSH. Si siguen vivos, compose
 # no puede borrar esa red, y el puerto 2222 queda ocupado.
 docker rm -f pagos pagos-db destino >/dev/null 2>&1 || true
 

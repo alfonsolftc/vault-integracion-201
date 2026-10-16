@@ -1,6 +1,6 @@
 # La batería
 
-[← Página anterior](04-lab-ssh-ca.md)
+[← Página anterior](05-lab-certificado-en-destino.md)
 
 Las tres pruebas caben en un script. Al terminar escribe `PASS fichero`, `PASS envoltorio` y `PASS firma`, y sale con código 0. Si una falla, esa línea es `FAIL` y el código es 1.
 

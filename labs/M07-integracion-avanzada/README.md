@@ -10,11 +10,12 @@ En el módulo 5 la aplicación dice la clave en voz alta para que veas que lleg�
 - Entregar el `secret_id` dentro de un envoltorio de un solo uso, y ver que un echo de ese token no sirve para entrar.
 - Firmar con el motor Transit a través del proxy de Agent, sin que la app reciba la clave privada ni el token.
 - Entrar por SSH en un Ubuntu levantado con Docker: `ana` se autentica con UserPass y `vault ssh -mode=ca` abre la sesión.
+- Dejar el certificado de `ana` en ese Ubuntu con Vault Agent, y quitar el fichero cuando el secreto se vacía.
 - Ejecutar las afirmaciones de fichero, envoltorio y firma Transit en una batería que escribe `PASS` o `FAIL`.
 
 ## Teoría
 
-Hay cuatro entregas avanzadas. Las tres primeras usan Vault Agent en el contenedor `pagos`. La de SSH levanta un Ubuntu con `sshd`: Vault es la CA y un usuario UserPass obtiene el certificado con el que entra.
+Las tres primeras entregas usan Vault Agent en el contenedor `pagos`. SSH levanta un Ubuntu: en una página `ana` entra con `vault ssh -mode=ca`; en la siguiente, Agent escribe su certificado en esa máquina y lo borra al vaciar el secreto.
 
 | Escenario | La salida enseña | El dato se queda |
 |-----------|------------------|------------------|
@@ -22,6 +23,7 @@ Hay cuatro entregas avanzadas. Las tres primeras usan Vault Agent en el contened
 | Envoltorio | Un login `400` y un segundo unwrap `400` | El `secret_id`, abierto una vez por Agent |
 | Firma Transit | `firma_prefijo=vault:v1:` y `valida=true` | La clave privada, dentro de Transit |
 | SSH | `ana` y `acceso=ok` con `vault ssh -mode=ca` | La CA privada en Vault; el principal `root` responde 400 |
+| Copia en destino | `fichero=no` después de vaciar el secreto | El certificado, escrito y borrado por Agent en el Ubuntu |
 
 La huella es el prefijo de doce caracteres del sha256 de `negocio.sh`, guardada en Vault al certificar el fuente. Agent la lee y la vuelve a medir en la máquina de la aplicación. El proceso que arranca es `validar.sh`: si coinciden, hace `exec` de `negocio.sh` y ese proceso hereda `CLAVE`. Si alguien editó el fuente para imprimir la clave, `negocio.sh` no arranca.
 
@@ -39,6 +41,8 @@ La firma Transit usa el motor `transit`. La app manda el texto `pago:42` al prox
 
 SSH no es el motor `pki` (X.509). Es `ssh/` con `key_type=ca` y una CA Ed25519. El Ubuntu confía en esa pública. `ana` entra con UserPass y `vault ssh -mode=ca -role=acceso` firma su clave y abre la sesión en `destino`. Pedir el principal `root` responde 400.
 
+El modo que hacía entrar a Vault en el servidor para escribir una clave en `authorized_keys`, y borrarla al caducar el lease, se llama `key_type=dynamic` y Vault 1.18 ya no lo admite. La copia del certificado la escribe Agent dentro del Ubuntu: lee `secret/ssh/ana` y deja `/home/ana/.ssh/ana-ssh-cert.pub`. Si el campo queda vacío, el comando del template borra el fichero. `sshd` no autoriza leyendo esa copia.
+
 > [!NOTE]
 > El log de Agent, al arrancar el proxy, avisa de que esa función pasa al subcomando `vault proxy`. En este módulo el proceso sigue siendo `vault agent`.
 
@@ -51,6 +55,7 @@ SSH no es el motor `pki` (X.509). Es `ssh/` con `key_type=ca` y una CA Ed25519. 
 | 02 | [secret_id envuelto](02-lab-secret-id-envuelto.md) | El token de entrega no entra, y Agent lo gasta |
 | 03 | [La app firma](03-lab-firma-transit.md) | `vault:v1:` y la clave privada no se exporta |
 | 04 | [Entrar por SSH](04-lab-ssh-ca.md) | UserPass y `vault ssh -mode=ca` en el Ubuntu |
-| 05 | [La batería](05-lab-bateria.md) | Tres `PASS` (fichero, envoltorio, firma Transit) |
+| 05 | [El certificado llega y se va](05-lab-certificado-en-destino.md) | Agent escribe el certificado en el Ubuntu y lo borra al vaciar el secreto |
+| 06 | [La batería](06-lab-bateria.md) | Tres `PASS` (fichero, envoltorio, firma Transit) |
 
 → Empieza por **[00 — El secreto no sale por el echo](00-secreto-sin-echo.md)**.
