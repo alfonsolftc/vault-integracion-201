@@ -1,6 +1,6 @@
 # La app firma
 
-[← Página anterior](02-lab-secret-id-envuelto.md) · [Siguiente página →](04-lab-bateria.md)
+[← Página anterior](02-lab-secret-id-envuelto.md) · [Siguiente página →](04-lab-ssh-ca.md)
 
 La aplicación de pagos tiene que firmar el texto `pago:42`. No recibe una clave. Vault Agent entra con el rol `firma`, escucha en el propio contenedor y añade el token. Transit devuelve una firma `vault:v1:`. La clave privada no se exporta, ni con el token de la app ni con el token `root`.
 

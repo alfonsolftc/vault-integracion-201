@@ -37,11 +37,12 @@ El laboratorio corre en el navegador (Codespace o Docker). En tu equipo no se in
   - [Laboratorio: escenarios de fallo](labs/M06-testing-integraciones/01-lab-escenarios-de-fallo.md)
   - [Laboratorio: checklist ejecutable](labs/M06-testing-integraciones/02-lab-checklist.md)
   - [Laboratorio: contrato de la respuesta](labs/M06-testing-integraciones/03-lab-contrato-de-la-respuesta.md)
-- **M07 — Integración avanzada** — [el secreto no sale por el echo: Agent lo deja en un fichero, el secret_id viaja envuelto y la app firma con Transit](labs/M07-integracion-avanzada/00-secreto-sin-echo.md)
+- **M07 — Integración avanzada** — [el secreto no sale por el echo: Agent, envoltorio, Transit y Vault como CA SSH](labs/M07-integracion-avanzada/00-secreto-sin-echo.md)
   - [Laboratorio: la huella en el fichero](labs/M07-integracion-avanzada/01-lab-huella-en-fichero.md)
   - [Laboratorio: secret_id envuelto](labs/M07-integracion-avanzada/02-lab-secret-id-envuelto.md)
   - [Laboratorio: la app firma](labs/M07-integracion-avanzada/03-lab-firma-transit.md)
-  - [Laboratorio: la batería](labs/M07-integracion-avanzada/04-lab-bateria.md)
+  - [Laboratorio: SSH con Vault como CA](labs/M07-integracion-avanzada/04-lab-ssh-ca.md)
+  - [Laboratorio: la batería](labs/M07-integracion-avanzada/05-lab-bateria.md)
 
 ## Antes de empezar
 

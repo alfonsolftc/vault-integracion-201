@@ -294,4 +294,4 @@ La línea de la app es `firma_prefijo=vault:v1: valida=true export_app=403 token
 
 ## Qué queda visto
 
-Tres pruebas, y en ninguna sale el secreto. El fichero da una huella que cambia al rotar. El wrapping token no entra en el login y, después de Agent, ya no se puede abrir. Transit firma `pago:42` y se niega a exportar la clave privada. Cada una se construye sola en [la huella en el fichero](01-lab-huella-en-fichero.md), [secret_id envuelto](02-lab-secret-id-envuelto.md) y [la app firma](03-lab-firma-transit.md). Las tres juntas están en [la batería](04-lab-bateria.md).
+Tres pruebas, y en ninguna sale el secreto. El fichero da una huella que cambia al rotar. El wrapping token no entra en el login y, después de Agent, ya no se puede abrir. Transit firma `pago:42` y se niega a exportar la clave privada. Cada una se construye sola en [la huella en el fichero](01-lab-huella-en-fichero.md), [secret_id envuelto](02-lab-secret-id-envuelto.md) y [la app firma](03-lab-firma-transit.md). Vault como CA SSH, firmando un certificado de usuario, está en [SSH con Vault como CA](04-lab-ssh-ca.md). Las tres primeras juntas están en [la batería](05-lab-bateria.md).

@@ -1,6 +1,6 @@
 # La batería
 
-[← Página anterior](03-lab-firma-transit.md)
+[← Página anterior](04-lab-ssh-ca.md)
 
 Las tres pruebas caben en un script. Al terminar escribe `PASS fichero`, `PASS envoltorio` y `PASS firma`, y sale con código 0. Si una falla, esa línea es `FAIL` y el código es 1.
 
@@ -276,7 +276,7 @@ PASS firma
 codigo=0
 ```
 
-![La batería escribe tres PASS y el código de salida es 0](../img/M07-04-bateria.png)
+![La batería escribe tres PASS y el código de salida es 0](../img/M07-05-bateria.png)
 
 ### 3 — Confirma que el valor no está en esa salida
 
