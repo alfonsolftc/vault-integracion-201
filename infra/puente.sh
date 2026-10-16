@@ -25,7 +25,14 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-cid="$(hostname)"
+# shellcheck source=infra/codespace-cid.sh
+source "$ROOT/infra/codespace-cid.sh"
+cid="$(vault_codespace_cid)" || {
+  echo "No encuentro el contenedor de este Codespace en Docker (hostname=$(hostname))." >&2
+  echo "Prueba: docker ps --format '{{.ID}} {{.Names}}'" >&2
+  exit 1
+}
+
 net="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' vault-dev | head -n 1)"
 if [[ -z "$net" ]]; then
   echo "vault-dev no tiene red. Revisa: docker logs vault-dev" >&2
@@ -35,7 +42,7 @@ fi
 connect_status=0
 connect_out="$(docker network connect "$net" "$cid" 2>&1)" || connect_status=$?
 if [[ "$connect_status" -ne 0 && "$connect_out" != *"already exists"* ]]; then
-  echo "No puedo unir este Codespace a la red de Vault." >&2
+  echo "No puedo unir este Codespace a la red de Vault (cid=${cid})." >&2
   printf '%s\n' "$connect_out" >&2
   exit 1
 fi

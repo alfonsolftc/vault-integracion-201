@@ -14,10 +14,13 @@ fi
 _vault_ensure_docker ${VAULT_DOCKER_INSTALL:+--install}
 
 # Si esta terminal es el Codespace, suelta la red de Vault antes de borrarla.
+# shellcheck source=infra/codespace-cid.sh
+source "$ROOT/infra/codespace-cid.sh"
 if [[ -f /.dockerenv ]] && docker inspect vault-dev >/dev/null 2>&1; then
   _net="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' vault-dev | head -n 1)"
-  if [[ -n "${_net}" ]]; then
-    docker network disconnect "${_net}" "$(hostname)" >/dev/null 2>&1 || true
+  _cid="$(vault_codespace_cid 2>/dev/null || true)"
+  if [[ -n "${_net}" && -n "${_cid}" ]]; then
+    docker network disconnect "${_net}" "${_cid}" >/dev/null 2>&1 || true
   fi
 fi
 
