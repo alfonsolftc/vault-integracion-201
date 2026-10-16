@@ -41,6 +41,7 @@ Si no tienes el CLI de Vault, `entorno.sh` define una función `vault` que ejecu
 |---------|-----------|
 | `docker: command not found` | Rebuild Container; no abras el repo solo en el navegador sin codespace |
 | `No encuentro el contenedor de este Codespace` / `No such container` | `git pull` y `bash infra/reiniciar-vault.sh`. Si sigue, pega la salida de `docker ps --format '{{.ID}} {{.Names}}'` |
+| `sharing network namespace` / no se puede unir a la red | El Codespace usa la red del host. `git pull` y `bash infra/reiniciar-vault.sh`: el puente publica el 8200 |
 | `El puente a Vault no responde` | `bash infra/reiniciar-vault.sh` otra vez; si falla, `cat /tmp/vault-puente.log` |
 | `Vault no ha respondido` | `docker logs vault-dev` |
 

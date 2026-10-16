@@ -1,5 +1,7 @@
-# Docker en el propio equipo: el 8200 del contenedor es el de la terminal.
-# En el Codespace no se carga este fichero.
+# Publica el 8200 en el anfitrión Docker.
+# En el equipo local lo carga compose-cmd.sh siempre.
+# En el Codespace lo carga el puente solo si el contenedor comparte
+# la red del host y no se puede unir a infra_default.
 services:
   vault:
     ports:
